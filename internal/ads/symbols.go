@@ -17,6 +17,8 @@ const (
 	IndexGroupSymbolUpload        uint32 = 0xF00C // Upload symbol table
 	IndexGroupSymbolUploadInfo2   uint32 = 0xF00E // Extended upload info (TC3)
 	IndexGroupSymbolUpload2       uint32 = 0xF00F // Extended symbol upload (TC3)
+	IndexGroupDataTypeUploadInfo  uint32 = 0xF010 // Get data type upload info
+	IndexGroupDataTypeUpload      uint32 = 0xF011 // Upload data type table
 )
 
 // GetSymbolHandleByNameRequest retrieves a handle for a symbol name.
@@ -150,3 +152,45 @@ const (
 	SymbolFlagAttributes       uint32 = 0x00001000
 	SymbolFlagStatic           uint32 = 0x00004000
 )
+
+// DataTypeUploadInfoRequest gets information about the data type table.
+// IndexGroup: 0xF010, IndexOffset: 0x00000000
+type DataTypeUploadInfoRequest struct{}
+
+func (r *DataTypeUploadInfoRequest) MarshalBinary() ([]byte, error) {
+	return []byte{}, nil
+}
+
+// DataTypeUploadInfoResponse contains data type table metadata.
+type DataTypeUploadInfoResponse struct {
+	DataTypeCount uint32 // Number of data types
+	DataTypeSize  uint32 // Total size of data type data in bytes
+}
+
+func (r *DataTypeUploadInfoResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 8 {
+		return fmt.Errorf("ads: data type upload info response requires at least 8 bytes, got %d", len(data))
+	}
+	r.DataTypeCount = binary.LittleEndian.Uint32(data[0:4])
+	r.DataTypeSize = binary.LittleEndian.Uint32(data[4:8])
+	return nil
+}
+
+// DataTypeUploadRequest requests the complete data type table.
+// IndexGroup: 0xF011, IndexOffset: 0x00000000
+type DataTypeUploadRequest struct{}
+
+func (r *DataTypeUploadRequest) MarshalBinary() ([]byte, error) {
+	return []byte{}, nil
+}
+
+// DataTypeUploadResponse contains the raw data type table data.
+type DataTypeUploadResponse struct {
+	Data []byte
+}
+
+func (r *DataTypeUploadResponse) UnmarshalBinary(data []byte) error {
+	r.Data = make([]byte, len(data))
+	copy(r.Data, data)
+	return nil
+}

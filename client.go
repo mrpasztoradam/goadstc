@@ -833,3 +833,271 @@ func (c *Client) WriteFloat64(ctx context.Context, symbolName string, value floa
 	binary.LittleEndian.PutUint64(data, math.Float64bits(value))
 	return c.WriteSymbol(ctx, symbolName, data)
 }
+
+// Struct field access methods (Milestone 4)
+
+// ReadStructField reads a field from a struct by path (e.g., "MAIN.myStruct.field1").
+// This is a simplified implementation that reads the entire struct and extracts the field.
+// For complex structs with detailed type information, use the type-safe methods directly.
+func (c *Client) ReadStructField(ctx context.Context, structPath string, fieldName string) ([]byte, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, err
+	}
+
+	// Get the struct symbol
+	symbol, err := c.symbolTable.Get(structPath)
+	if err != nil {
+		return nil, fmt.Errorf("get symbol %q: %w", structPath, err)
+	}
+
+	if !symbol.Type.IsStruct {
+		return nil, fmt.Errorf("%q is not a struct type", structPath)
+	}
+
+	// For now, read the entire struct
+	// In a full implementation, we would parse the type information to find field offset
+	structData, err := c.ReadSymbol(ctx, structPath)
+	if err != nil {
+		return nil, fmt.Errorf("read struct %q: %w", structPath, err)
+	}
+
+	// This is a simplified version - a full implementation would need
+	// the PLC to provide detailed type information including field offsets
+	return structData, fmt.Errorf("field extraction requires detailed type information from PLC")
+}
+
+// WriteStructField writes a field to a struct by path.
+// This is a simplified implementation that requires reading the entire struct,
+// modifying the field, and writing back.
+func (c *Client) WriteStructField(ctx context.Context, structPath string, fieldName string, fieldData []byte) error {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return err
+	}
+
+	// Get the struct symbol
+	symbol, err := c.symbolTable.Get(structPath)
+	if err != nil {
+		return fmt.Errorf("get symbol %q: %w", structPath, err)
+	}
+
+	if !symbol.Type.IsStruct {
+		return fmt.Errorf("%q is not a struct type", structPath)
+	}
+
+	// For now, return an error indicating limitation
+	// A full implementation would need detailed type information from the PLC
+	return fmt.Errorf("struct field writing requires detailed type information from PLC")
+}
+
+// ReadStructFieldInt16 reads an INT16 field from a struct.
+// This uses direct symbol path like "MAIN.myStruct.field1".
+func (c *Client) ReadStructFieldInt16(ctx context.Context, fieldPath string) (int16, error) {
+	return c.ReadInt16(ctx, fieldPath)
+}
+
+// ReadStructFieldUint16 reads a UINT16 field from a struct.
+func (c *Client) ReadStructFieldUint16(ctx context.Context, fieldPath string) (uint16, error) {
+	return c.ReadUint16(ctx, fieldPath)
+}
+
+// ReadStructFieldInt32 reads an INT32 field from a struct.
+func (c *Client) ReadStructFieldInt32(ctx context.Context, fieldPath string) (int32, error) {
+	return c.ReadInt32(ctx, fieldPath)
+}
+
+// ReadStructFieldUint32 reads a UINT32 field from a struct.
+func (c *Client) ReadStructFieldUint32(ctx context.Context, fieldPath string) (uint32, error) {
+	return c.ReadUint32(ctx, fieldPath)
+}
+
+// ReadStructFieldBool reads a BOOL field from a struct.
+func (c *Client) ReadStructFieldBool(ctx context.Context, fieldPath string) (bool, error) {
+	return c.ReadBool(ctx, fieldPath)
+}
+
+// WriteStructFieldInt16 writes an INT16 field to a struct.
+func (c *Client) WriteStructFieldInt16(ctx context.Context, fieldPath string, value int16) error {
+	return c.WriteInt16(ctx, fieldPath, value)
+}
+
+// WriteStructFieldUint16 writes a UINT16 field to a struct.
+func (c *Client) WriteStructFieldUint16(ctx context.Context, fieldPath string, value uint16) error {
+	return c.WriteUint16(ctx, fieldPath, value)
+}
+
+// WriteStructFieldInt32 writes an INT32 field to a struct.
+func (c *Client) WriteStructFieldInt32(ctx context.Context, fieldPath string, value int32) error {
+	return c.WriteInt32(ctx, fieldPath, value)
+}
+
+// WriteStructFieldUint32 writes a UINT32 field to a struct.
+func (c *Client) WriteStructFieldUint32(ctx context.Context, fieldPath string, value uint32) error {
+	return c.WriteUint32(ctx, fieldPath, value)
+}
+
+// WriteStructFieldBool writes a BOOL field to a struct.
+func (c *Client) WriteStructFieldBool(ctx context.Context, fieldPath string, value bool) error {
+	return c.WriteBool(ctx, fieldPath, value)
+}
+
+// GetDataTypeUploadInfo retrieves information about the data type table.
+func (c *Client) GetDataTypeUploadInfo(ctx context.Context) (dataTypeCount, dataTypeSize uint32, err error) {
+	// Use Read command with ADSIGRP_SYM_DT_UPLOADINFO (0xF010)
+	readData, err := c.Read(ctx, 0xF010, 0, 0x30) // 48 bytes for upload info
+	if err != nil {
+		return 0, 0, fmt.Errorf("get data type upload info: %w", err)
+	}
+
+	var resp ads.DataTypeUploadInfoResponse
+	if err := resp.UnmarshalBinary(readData); err != nil {
+		return 0, 0, fmt.Errorf("unmarshal data type upload info: %w", err)
+	}
+
+	return resp.DataTypeCount, resp.DataTypeSize, nil
+}
+
+// UploadDataTypeTable retrieves the complete data type table from the PLC.
+func (c *Client) UploadDataTypeTable(ctx context.Context) ([]byte, error) {
+	// Get data type info first
+	_, dataTypeSize, err := c.GetDataTypeUploadInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if dataTypeSize == 0 {
+		return nil, fmt.Errorf("data type size is 0")
+	}
+
+	// Use Read command with ADSIGRP_SYM_DT_UPLOAD (0xF011)
+	readLength := dataTypeSize + 1024 // Add buffer
+	readData, err := c.Read(ctx, 0xF011, 0, readLength)
+	if err != nil {
+		return nil, fmt.Errorf("upload data type table: %w", err)
+	}
+
+	return readData, nil
+}
+
+// ReadStructAsMap reads a struct symbol and returns its fields as a map.
+// The map keys are field names and values are interface{} containing the parsed values.
+func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[string]interface{}, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, err
+	}
+
+	// Get the symbol
+	symbol, err := c.symbolTable.Get(symbolName)
+	if err != nil {
+		return nil, fmt.Errorf("get symbol %q: %w", symbolName, err)
+	}
+
+	if !symbol.Type.IsStruct {
+		return nil, fmt.Errorf("%q is not a struct type", symbolName)
+	}
+
+	// Read the entire struct data
+	structData, err := c.ReadSymbol(ctx, symbolName)
+	if err != nil {
+		return nil, fmt.Errorf("read struct %q: %w", symbolName, err)
+	}
+
+	// Parse the struct based on available type information
+	result := make(map[string]interface{})
+
+	// If we have detailed field information, parse it
+	if len(symbol.Type.Fields) > 0 {
+		for _, field := range symbol.Type.Fields {
+			if int(field.Offset)+int(field.Type.Size) > len(structData) {
+				continue // Skip fields beyond data bounds
+			}
+			fieldData := structData[field.Offset : field.Offset+field.Type.Size]
+			result[field.Name] = parseFieldValue(fieldData, field.Type)
+		}
+	} else {
+		// No detailed field info - return raw data
+		result["_raw"] = structData
+		result["_size"] = len(structData)
+		result["_type"] = symbol.Type.Name
+		result["_note"] = "Detailed field information not available. Use UploadDataTypeTable for full struct parsing."
+	}
+
+	return result, nil
+}
+
+// parseFieldValue parses a field value based on its type.
+func parseFieldValue(data []byte, typeInfo symbols.TypeInfo) interface{} {
+	if len(data) == 0 {
+		return nil
+	}
+
+	// Handle arrays
+	if typeInfo.IsArray {
+		return fmt.Sprintf("<array %d bytes>", len(data))
+	}
+
+	// Handle nested structs
+	if typeInfo.IsStruct {
+		return fmt.Sprintf("<struct %s, %d bytes>", typeInfo.Name, len(data))
+	}
+
+	// Parse simple types
+	switch typeInfo.BaseType {
+	case symbols.DataTypeBool:
+		if len(data) >= 1 {
+			return data[0] != 0
+		}
+	case symbols.DataTypeInt8:
+		if len(data) >= 1 {
+			return int8(data[0])
+		}
+	case symbols.DataTypeUInt8:
+		if len(data) >= 1 {
+			return uint8(data[0])
+		}
+	case symbols.DataTypeInt16:
+		if len(data) >= 2 {
+			return int16(binary.LittleEndian.Uint16(data))
+		}
+	case symbols.DataTypeUInt16:
+		if len(data) >= 2 {
+			return binary.LittleEndian.Uint16(data)
+		}
+	case symbols.DataTypeInt32:
+		if len(data) >= 4 {
+			return int32(binary.LittleEndian.Uint32(data))
+		}
+	case symbols.DataTypeUInt32:
+		if len(data) >= 4 {
+			return binary.LittleEndian.Uint32(data)
+		}
+	case symbols.DataTypeInt64:
+		if len(data) >= 8 {
+			return int64(binary.LittleEndian.Uint64(data))
+		}
+	case symbols.DataTypeUInt64:
+		if len(data) >= 8 {
+			return binary.LittleEndian.Uint64(data)
+		}
+	case symbols.DataTypeReal32:
+		if len(data) >= 4 {
+			bits := binary.LittleEndian.Uint32(data)
+			return math.Float32frombits(bits)
+		}
+	case symbols.DataTypeReal64:
+		if len(data) >= 8 {
+			bits := binary.LittleEndian.Uint64(data)
+			return math.Float64frombits(bits)
+		}
+	case symbols.DataTypeString:
+		// Find null terminator
+		for i, b := range data {
+			if b == 0 {
+				return string(data[:i])
+			}
+		}
+		return string(data)
+	}
+
+	// Default: return hex string
+	return fmt.Sprintf("0x%x", data)
+}

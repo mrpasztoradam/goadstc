@@ -105,6 +105,7 @@ func main() {
 ### Core Methods
 
 **Basic Operations:**
+
 - `ReadDeviceInfo(ctx)` - Read device name and version
 - `Read(ctx, indexGroup, indexOffset, length)` - Read data from device
 - `Write(ctx, indexGroup, indexOffset, data)` - Write data to device
@@ -113,6 +114,7 @@ func main() {
 - `ReadWrite(ctx, indexGroup, indexOffset, readLength, writeData)` - Combined read/write operation
 
 **Symbol Resolution (NEW):**
+
 - `RefreshSymbols(ctx)` - Download and cache symbol table from PLC
 - `GetSymbol(name)` - Get cached symbol information
 - `ListSymbols(ctx)` - List all symbols in cache
@@ -121,6 +123,7 @@ func main() {
 - `WriteSymbol(ctx, name, data)` - Write PLC variable by name
 
 **Notifications:**
+
 - `Subscribe(ctx, opts)` - Create a notification subscription for real-time PLC data monitoring
 
 ### Notifications
@@ -153,7 +156,7 @@ Supported transmission modes:
 - `TransModeCyclic` - Send notifications at fixed intervals
 - `TransModeOnChange` - Send only when value changes
 - `TransModeCyclicOnChange` - Combination of both
-Symbol-Based Access (Recommended)
+  Symbol-Based Access (Recommended)
 
 ```go
 // Read PLC variable by name (auto-loads symbol table on first use)
