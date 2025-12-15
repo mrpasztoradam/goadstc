@@ -267,14 +267,25 @@ func (c *Client) UploadSymbolTable(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("symbol table is empty")
 	}
 
-	// Use Read command with ADSIGRP_SYM_UPLOAD (0xF00B)
-	// Request a large buffer for the symbol table
-	readLength := symbolLength
-	if readLength < 0xFFFFFF {
-		readLength = 0xFFFFFF // Request max to ensure we get everything
+	// Create a context with extended timeout for large symbol table downloads
+	// Symbol tables can be large (several MB) and take time to transfer
+	uploadCtx := ctx
+	if deadline, ok := ctx.Deadline(); ok {
+		// Extend the deadline by 30 seconds for symbol upload
+		extendedDeadline := deadline.Add(30 * time.Second)
+		var cancel context.CancelFunc
+		uploadCtx, cancel = context.WithDeadline(context.Background(), extendedDeadline)
+		defer cancel()
+	} else {
+		// No existing deadline, create one with 30 seconds
+		var cancel context.CancelFunc
+		uploadCtx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 	}
 
-	readData, err := c.Read(ctx, 0xF00B, 0, readLength)
+	// Use Read command with ADSIGRP_SYM_UPLOAD (0xF00B)
+	// Request the exact size reported by the PLC
+	readData, err := c.Read(uploadCtx, 0xF00B, 0, symbolLength)
 	if err != nil {
 		return nil, fmt.Errorf("upload symbol table: %w", err)
 	}
