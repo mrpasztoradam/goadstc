@@ -30,3 +30,6 @@ tests/
 
 # Spec
 spec/
+
+# Example outputs
+symbols_export.json
