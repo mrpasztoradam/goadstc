@@ -26,12 +26,12 @@ func main() {
 	// Subscribe to PLC variable changes
 	// This example monitors a DINT (32-bit integer) at a specific address
 	sub, err := client.Subscribe(context.Background(), goadstc.NotificationOptions{
-		IndexGroup:       ads.IndexGroupPLCMemory,  // PLC memory area
-		IndexOffset:      0x1000,                    // Example offset
-		Length:           4,                         // DINT = 4 bytes
-		TransmissionMode: ads.TransModeOnChange,    // Notify only on value change
-		MaxDelay:         100 * time.Millisecond,   // Max delay before notification
-		CycleTime:        50 * time.Millisecond,    // Check interval
+		IndexGroup:       ads.IndexGroupPLCMemory, // PLC memory area
+		IndexOffset:      0x1000,                  // Example offset
+		Length:           4,                       // DINT = 4 bytes
+		TransmissionMode: ads.TransModeOnChange,   // Notify only on value change
+		MaxDelay:         100 * time.Millisecond,  // Max delay before notification
+		CycleTime:        50 * time.Millisecond,   // Check interval
 	})
 	if err != nil {
 		log.Fatalf("Failed to subscribe: %v", err)
@@ -47,14 +47,14 @@ func main() {
 		// Parse the notification data (DINT in this example)
 		if len(notif.Data) >= 4 {
 			value := int32(binary.LittleEndian.Uint32(notif.Data[0:4]))
-			fmt.Printf("[%s] Value changed: %d (0x%08X)\n", 
-				notif.Timestamp.Format("15:04:05.000"), 
-				value, 
+			fmt.Printf("[%s] Value changed: %d (0x%08X)\n",
+				notif.Timestamp.Format("15:04:05.000"),
+				value,
 				uint32(value))
 		} else {
-			fmt.Printf("[%s] Received %d bytes: %x\n", 
-				notif.Timestamp.Format("15:04:05.000"), 
-				len(notif.Data), 
+			fmt.Printf("[%s] Received %d bytes: %x\n",
+				notif.Timestamp.Format("15:04:05.000"),
+				len(notif.Data),
 				notif.Data)
 		}
 	}

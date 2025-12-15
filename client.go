@@ -376,11 +376,11 @@ func (c *Client) Subscribe(ctx context.Context, opts NotificationOptions) (*Subs
 
 	// Create subscription
 	sub := &Subscription{
-		handle:   resp.NotificationHandle,
-		client:   c,
-		notifCh:  make(chan Notification, 16),
-		closed:   false,
-		closeMu:  sync.Mutex{},
+		handle:  resp.NotificationHandle,
+		client:  c,
+		notifCh: make(chan Notification, 16),
+		closed:  false,
+		closeMu: sync.Mutex{},
 	}
 
 	// Register subscription

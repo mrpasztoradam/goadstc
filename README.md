@@ -137,6 +137,7 @@ for notif := range sub.Notifications() {
 ```
 
 Supported transmission modes:
+
 - `TransModeCyclic` - Send notifications at fixed intervals
 - `TransModeOnChange` - Send only when value changes
 - `TransModeCyclicOnChange` - Combination of both

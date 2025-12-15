@@ -37,8 +37,8 @@ const (
 type TransmissionMode uint32
 
 const (
-	TransModeCyclic    TransmissionMode = 3 // Cyclic transmission
-	TransModeOnChange  TransmissionMode = 4 // On change transmission
+	TransModeCyclic         TransmissionMode = 3 // Cyclic transmission
+	TransModeOnChange       TransmissionMode = 4 // On change transmission
 	TransModeCyclicOnChange TransmissionMode = 5 // Cyclic and on change
 )
 
