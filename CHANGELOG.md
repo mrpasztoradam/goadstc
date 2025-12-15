@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- Library versioning system
+  - Version constants (Major, Minor, Patch)
+  - `Version()` function returning semantic version string
+  - `GetBuildInfo()` for detailed build and VCS information
+  - Automatic git commit/tag extraction when built with Go 1.18+
+  - version_test.go with comprehensive tests
+  
+
 
 - Structured logging support using Go's standard `log/slog` package
   - JSON-based logging for easy parsing and analysis

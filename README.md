@@ -65,6 +65,23 @@ See [OBSERVABILITY.md](OBSERVABILITY.md) for detailed documentation.
 go get github.com/mrpasztoradam/goadstc
 ```
 
+## Version Information
+
+The library follows [Semantic Versioning](https://semver.org/). You can query version information programmatically:
+
+```go
+import "github.com/mrpasztoradam/goadstc"
+
+// Get version string
+version := goadstc.Version() // e.g., "0.1.0"
+
+// Get detailed build information
+info := goadstc.GetBuildInfo()
+fmt.Println(info.String()) // Includes git commit, tag, Go version, etc.
+```
+
+See [examples/version/](examples/version/) for a complete example.
+
 ## Project Structure
 
 ```
