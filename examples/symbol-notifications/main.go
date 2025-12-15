@@ -53,7 +53,7 @@ func main() {
 		log.Fatalf("❌ Failed to subscribe: %v", err)
 	}
 	defer sub.Close()
-	
+
 	fmt.Printf("✅ Subscribed successfully (handle: %d)\n", sub.Handle())
 	fmt.Println("   Monitoring for value changes...")
 	fmt.Println("   (Writing values 1000-1004 to trigger notifications)")
@@ -62,7 +62,7 @@ func main() {
 	// Monitor notifications
 	notifCount := 0
 	done := make(chan bool)
-	
+
 	go func() {
 		for notif := range sub.Notifications() {
 			notifCount++
@@ -71,7 +71,7 @@ func main() {
 				fmt.Printf("   📬 [%d] Value changed: %d (at %s)\n",
 					notifCount, value, notif.Timestamp.Format("15:04:05.000"))
 			}
-			
+
 			if notifCount >= 5 {
 				fmt.Println("\n   (Received 5 notifications, stopping...)")
 				done <- true

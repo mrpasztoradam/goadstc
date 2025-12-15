@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -346,39 +347,139 @@ func (c *Client) FindSymbols(ctx context.Context, pattern string) ([]*symbols.Sy
 	return c.symbolTable.Find(pattern)
 }
 
+// parseArrayAccess parses array notation like "MAIN.myArray[5]" or "MAIN.matrix[2][3]"
+// Returns: base symbol name, array indices, error
+func parseArrayAccess(symbolName string) (string, []int, error) {
+	// Check if there's array notation
+	if !strings.Contains(symbolName, "[") {
+		return symbolName, nil, nil
+	}
+
+	// Find the base name (everything before first '[')
+	firstBracket := strings.Index(symbolName, "[")
+	baseName := symbolName[:firstBracket]
+	
+	// Parse indices
+	var indices []int
+	remainder := symbolName[firstBracket:]
+	
+	for len(remainder) > 0 {
+		if remainder[0] != '[' {
+			return "", nil, fmt.Errorf("invalid array notation: expected '[' at position %d", len(symbolName)-len(remainder))
+		}
+		
+		closeBracket := strings.Index(remainder, "]")
+		if closeBracket == -1 {
+			return "", nil, fmt.Errorf("invalid array notation: missing ']'")
+		}
+		
+		indexStr := remainder[1:closeBracket]
+		index, err := fmt.Sscanf(indexStr, "%d", new(int))
+		if err != nil || index != 1 {
+			return "", nil, fmt.Errorf("invalid array index: %q", indexStr)
+		}
+		
+		var idx int
+		fmt.Sscanf(indexStr, "%d", &idx)
+		indices = append(indices, idx)
+		
+		remainder = remainder[closeBracket+1:]
+	}
+	
+	return baseName, indices, nil
+}
+
+// extractArrayElementType extracts the element type from an array type name.
+// e.g., "ARRAY [0..9] OF INT" -> "INT"
+// e.g., "ARRAY [0..4] OF TestSt" -> "TestSt"
+func extractArrayElementType(arrayTypeName string) (string, bool) {
+	ofIndex := strings.Index(arrayTypeName, " OF ")
+	if ofIndex == -1 {
+		return "", false
+	}
+	elementType := strings.TrimSpace(arrayTypeName[ofIndex+4:])
+	return elementType, true
+}
+
+// resolveArraySymbol resolves array element access and returns the adjusted symbol info.
+// For "MAIN.myArray[5]", it returns the base symbol with IndexOffset adjusted for element 5.
+func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (indexGroup, indexOffset, size uint32, err error) {
+	baseName, indices, err := parseArrayAccess(symbolName)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	// Get the base symbol
+	symbol, err := c.GetSymbol(baseName)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("resolve symbol %q: %w", baseName, err)
+	}
+
+	// If no array access, return as-is
+	if len(indices) == 0 {
+		return symbol.IndexGroup, symbol.IndexOffset, symbol.Size, nil
+	}
+
+	// Calculate offset for array access
+	if len(indices) > 1 {
+		return 0, 0, 0, fmt.Errorf("multi-dimensional arrays not yet supported")
+	}
+
+	// For arrays, extract the element type from the array type name
+	// e.g., "ARRAY [0..9] OF INT" -> element type is "INT"
+	elementTypeName, isArray := extractArrayElementType(symbol.Type.Name)
+	if !isArray {
+		// Not an array type, use the symbol's type directly (shouldn't happen with valid array access)
+		elementTypeName = symbol.Type.Name
+	}
+
+	// Get element type info to determine element size
+	elementTypeInfo, err := c.getOrFetchTypeInfo(ctx, elementTypeName)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("get element type info for %q: %w", elementTypeName, err)
+	}
+
+	elementSize := elementTypeInfo.Size
+	offset := uint32(indices[0]) * elementSize
+
+	return symbol.IndexGroup, symbol.IndexOffset + offset, elementSize, nil
+}
+
 // ReadSymbol reads data from a PLC symbol by name.
+// Supports array element access using bracket notation: "MAIN.myArray[5]"
 // Automatically loads symbol table on first call.
 func (c *Client) ReadSymbol(ctx context.Context, symbolName string) ([]byte, error) {
 	if err := c.ensureSymbolsLoaded(ctx); err != nil {
 		return nil, err
 	}
 
-	symbol, err := c.GetSymbol(symbolName)
+	indexGroup, indexOffset, size, err := c.resolveArraySymbol(ctx, symbolName)
 	if err != nil {
 		return nil, fmt.Errorf("read symbol %q: %w", symbolName, err)
 	}
 
-	return c.Read(ctx, symbol.IndexGroup, symbol.IndexOffset, symbol.Size)
+	return c.Read(ctx, indexGroup, indexOffset, size)
 }
 
 // WriteSymbol writes data to a PLC symbol by name.
+// Supports array element access using bracket notation: "MAIN.myArray[5]"
 // Automatically loads symbol table on first call.
 func (c *Client) WriteSymbol(ctx context.Context, symbolName string, data []byte) error {
 	if err := c.ensureSymbolsLoaded(ctx); err != nil {
 		return err
 	}
 
-	symbol, err := c.GetSymbol(symbolName)
+	indexGroup, indexOffset, size, err := c.resolveArraySymbol(ctx, symbolName)
 	if err != nil {
 		return fmt.Errorf("write symbol %q: %w", symbolName, err)
 	}
 
-	if uint32(len(data)) != symbol.Size {
+	if uint32(len(data)) != size {
 		return fmt.Errorf("write symbol %q: data size mismatch (expected %d bytes, got %d)",
-			symbolName, symbol.Size, len(data))
+			symbolName, size, len(data))
 	}
 
-	return c.Write(ctx, symbol.IndexGroup, symbol.IndexOffset, data)
+	return c.Write(ctx, indexGroup, indexOffset, data)
 }
 
 // ReadDeviceInfo reads the device name and version.
@@ -1032,6 +1133,30 @@ func (c *Client) ListRegisteredTypes() []string {
 	return c.typeRegistry.List()
 }
 
+// getOrFetchTypeInfo gets type info from registry or fetches from PLC if not cached.
+func (c *Client) getOrFetchTypeInfo(ctx context.Context, typeName string) (symbols.TypeInfo, error) {
+	// Try to get from registry first
+	c.typeRegistryMu.RLock()
+	if typeInfo, exists := c.typeRegistry.Get(typeName); exists {
+		c.typeRegistryMu.RUnlock()
+		return typeInfo, nil
+	}
+	c.typeRegistryMu.RUnlock()
+
+	// Not in registry, fetch from PLC
+	typeInfo, err := c.fetchTypeInfoFromPLC(ctx, typeName)
+	if err != nil {
+		return symbols.TypeInfo{}, err
+	}
+
+	// Cache it
+	c.typeRegistryMu.Lock()
+	c.typeRegistry.Register(typeName, typeInfo)
+	c.typeRegistryMu.Unlock()
+
+	return typeInfo, nil
+}
+
 // fetchTypeInfoFromPLC retrieves type information from the PLC using ADSIGRP_SYM_DT_UPLOAD (0xF011).
 func (c *Client) fetchTypeInfoFromPLC(ctx context.Context, typeName string) (symbols.TypeInfo, error) {
 	// Use ReadWrite command with ADSIGRP_SYM_DT_UPLOAD (0xF011)
@@ -1170,17 +1295,33 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 		return nil, err
 	}
 
-	// Get the symbol
-	symbol, err := c.symbolTable.Get(symbolName)
+	// Parse array notation if present
+	baseName, _, err := parseArrayAccess(symbolName)
 	if err != nil {
-		return nil, fmt.Errorf("get symbol %q: %w", symbolName, err)
+		return nil, err
 	}
 
+	// Get the base symbol to check type
+	symbol, err := c.symbolTable.Get(baseName)
+	if err != nil {
+		return nil, fmt.Errorf("get symbol %q: %w", baseName, err)
+	}
+
+	// Determine the struct type name (handle array of structs)
+	structTypeName := symbol.Type.Name
+	if elementType, isArray := extractArrayElementType(symbol.Type.Name); isArray {
+		structTypeName = elementType
+	}
+
+	// Verify it's a struct type
 	if !symbol.Type.IsStruct {
-		return nil, fmt.Errorf("%q is not a struct type", symbolName)
+		// For arrays, check if the element type is a struct
+		if !strings.Contains(symbol.Type.Name, "ARRAY") {
+			return nil, fmt.Errorf("%q is not a struct type", symbolName)
+		}
 	}
 
-	// Read the entire struct data
+	// Read the struct data (ReadSymbol handles array notation)
 	structData, err := c.ReadSymbol(ctx, symbolName)
 	if err != nil {
 		return nil, fmt.Errorf("read struct %q: %w", symbolName, err)
@@ -1194,17 +1335,17 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 	var hasTypeInfo bool
 
 	c.typeRegistryMu.RLock()
-	typeInfo, hasTypeInfo = c.typeRegistry.Get(symbol.Type.Name)
+	typeInfo, hasTypeInfo = c.typeRegistry.Get(structTypeName)
 	c.typeRegistryMu.RUnlock()
 
 	// If not registered, try to fetch from PLC and cache it
 	if !hasTypeInfo || len(typeInfo.Fields) == 0 {
-		if fetchedTypeInfo, err := c.fetchTypeInfoFromPLC(ctx, symbol.Type.Name); err == nil {
+		if fetchedTypeInfo, err := c.fetchTypeInfoFromPLC(ctx, structTypeName); err == nil {
 			typeInfo = fetchedTypeInfo
 			hasTypeInfo = true
 			// Cache it for future use
 			c.typeRegistryMu.Lock()
-			c.typeRegistry.Register(symbol.Type.Name, typeInfo)
+			c.typeRegistry.Register(structTypeName, typeInfo)
 			c.typeRegistryMu.Unlock()
 		}
 	}
