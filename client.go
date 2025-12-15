@@ -588,6 +588,35 @@ func (c *Client) Subscribe(ctx context.Context, opts NotificationOptions) (*Subs
 	return sub, nil
 }
 
+// SubscribeSymbol creates a notification subscription using a symbol name.
+// This is a convenience method that automatically looks up the symbol's index group,
+// offset, and length. The returned Subscription will deliver notifications via its
+// Notifications() channel. Call Close() on the Subscription when done.
+func (c *Client) SubscribeSymbol(ctx context.Context, symbolName string, opts SymbolNotificationOptions) (*Subscription, error) {
+	// Ensure symbols are loaded
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, fmt.Errorf("load symbols: %w", err)
+	}
+
+	// Get the symbol
+	symbol, err := c.symbolTable.Get(symbolName)
+	if err != nil {
+		return nil, fmt.Errorf("get symbol %q: %w", symbolName, err)
+	}
+
+	// Create notification options with symbol information
+	notifOpts := NotificationOptions{
+		IndexGroup:       symbol.IndexGroup,
+		IndexOffset:      symbol.IndexOffset,
+		Length:           symbol.Size,
+		TransmissionMode: opts.TransmissionMode,
+		MaxDelay:         opts.MaxDelay,
+		CycleTime:        opts.CycleTime,
+	}
+
+	return c.Subscribe(ctx, notifOpts)
+}
+
 // unregisterSubscription removes a subscription from the registry.
 func (c *Client) unregisterSubscription(handle uint32) {
 	c.subscriptionsMu.Lock()
