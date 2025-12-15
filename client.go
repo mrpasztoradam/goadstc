@@ -3,12 +3,15 @@ package goadstc
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/mrpasztoradam/goadstc/internal/ads"
 	"github.com/mrpasztoradam/goadstc/internal/ams"
+	"github.com/mrpasztoradam/goadstc/internal/symbols"
 	"github.com/mrpasztoradam/goadstc/internal/transport"
 )
 
@@ -21,6 +24,10 @@ type Client struct {
 	sourcePort      ams.Port
 	subscriptions   map[uint32]*Subscription
 	subscriptionsMu sync.RWMutex
+	symbolTable     *symbols.Table
+	symbolTableMu   sync.RWMutex
+	typeRegistry    *symbols.TypeRegistry
+	typeRegistryMu  sync.RWMutex
 }
 
 // DeviceInfo represents device information returned by ReadDeviceInfo.
@@ -136,6 +143,8 @@ func New(opts ...Option) (*Client, error) {
 		sourceNetID:   cfg.sourceNetID,
 		sourcePort:    cfg.sourcePort,
 		subscriptions: make(map[uint32]*Subscription),
+		symbolTable:   symbols.NewTable(),
+		typeRegistry:  symbols.NewTypeRegistry(),
 	}
 
 	// Set up notification handler
@@ -182,6 +191,363 @@ func (c *Client) sendRequest(ctx context.Context, commandID ads.CommandID, reqDa
 	}
 
 	return respPacket, nil
+}
+
+// GetSymbolHandle retrieves a handle for the given symbol name.
+// The handle can be used with Read/Write operations using the handle's IndexGroup/IndexOffset.
+// Handles should be released with ReleaseSymbolHandle when no longer needed.
+func (c *Client) GetSymbolHandle(ctx context.Context, symbolName string) (uint32, error) {
+	// Prepare symbol name as null-terminated string
+	nameBytes := []byte(symbolName)
+	nameBytes = append(nameBytes, 0) // Add null terminator
+
+	// Use ReadWrite command with ADSIGRP_SYM_HNDBYNAME (0xF003)
+	readData, err := c.ReadWrite(ctx, 0xF003, 0, 4, nameBytes)
+	if err != nil {
+		return 0, fmt.Errorf("get symbol handle for %q: %w", symbolName, err)
+	}
+
+	if len(readData) < 4 {
+		return 0, fmt.Errorf("invalid symbol handle response: expected 4 bytes, got %d", len(readData))
+	}
+
+	var resp ads.GetSymbolHandleByNameResponse
+	if err := resp.UnmarshalBinary(readData); err != nil {
+		return 0, fmt.Errorf("parse symbol handle response: %w", err)
+	}
+
+	return resp.Handle, nil
+}
+
+// ReleaseSymbolHandle releases a previously acquired symbol handle.
+func (c *Client) ReleaseSymbolHandle(ctx context.Context, handle uint32) error {
+	// Prepare handle as 4-byte data
+	handleData := make([]byte, 4)
+	binary.LittleEndian.PutUint32(handleData, handle)
+
+	// Use Write command with ADSIGRP_SYM_RELEASEHND (0xF006)
+	if err := c.Write(ctx, 0xF006, 0, handleData); err != nil {
+		return fmt.Errorf("release symbol handle %d: %w", handle, err)
+	}
+
+	return nil
+}
+
+// GetSymbolUploadInfo retrieves information about the PLC symbol table.
+// Returns the number of symbols and total size of symbol data.
+func (c *Client) GetSymbolUploadInfo(ctx context.Context) (symbolCount, symbolLength uint32, err error) {
+	// Use Read command with ADSIGRP_SYM_UPLOADINFO2 (0xF00C)
+	readData, err := c.Read(ctx, 0xF00C, 0, 0x30) // 48 bytes for upload info
+	if err != nil {
+		return 0, 0, fmt.Errorf("get symbol upload info: %w", err)
+	}
+
+	if len(readData) < 8 {
+		return 0, 0, fmt.Errorf("invalid upload info response: expected at least 8 bytes, got %d", len(readData))
+	}
+
+	var resp ads.SymbolUploadInfoResponse
+	if err := resp.UnmarshalBinary(readData); err != nil {
+		return 0, 0, fmt.Errorf("parse symbol upload info: %w", err)
+	}
+
+	return resp.SymbolCount, resp.SymbolLength, nil
+}
+
+// UploadSymbolTable downloads the complete symbol table from the PLC.
+// The returned data is in raw TwinCAT format and needs parsing.
+func (c *Client) UploadSymbolTable(ctx context.Context) ([]byte, error) {
+	// First get the size
+	_, symbolLength, err := c.GetSymbolUploadInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if symbolLength == 0 {
+		return nil, fmt.Errorf("symbol table is empty")
+	}
+
+	// Use Read command with ADSIGRP_SYM_UPLOAD (0xF00B)
+	// Request a large buffer for the symbol table
+	readLength := symbolLength
+	if readLength < 0xFFFFFF {
+		readLength = 0xFFFFFF // Request max to ensure we get everything
+	}
+
+	readData, err := c.Read(ctx, 0xF00B, 0, readLength)
+	if err != nil {
+		return nil, fmt.Errorf("upload symbol table: %w", err)
+	}
+
+	return readData, nil
+}
+
+// RefreshSymbols downloads and parses the symbol table from the PLC.
+// This method should be called before using symbol-based operations.
+// It can be called multiple times to refresh the cache if the PLC program changes.
+func (c *Client) RefreshSymbols(ctx context.Context) error {
+	data, err := c.UploadSymbolTable(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh symbols: %w", err)
+	}
+
+	c.symbolTableMu.Lock()
+	defer c.symbolTableMu.Unlock()
+
+	if err := c.symbolTable.Load(data); err != nil {
+		return fmt.Errorf("load symbols: %w", err)
+	}
+
+	return nil
+}
+
+// ensureSymbolsLoaded automatically loads symbols if not already loaded.
+func (c *Client) ensureSymbolsLoaded(ctx context.Context) error {
+	c.symbolTableMu.RLock()
+	loaded := c.symbolTable.IsLoaded()
+	c.symbolTableMu.RUnlock()
+
+	if !loaded {
+		return c.RefreshSymbols(ctx)
+	}
+	return nil
+}
+
+// GetSymbol retrieves symbol information by name.
+func (c *Client) GetSymbol(name string) (*symbols.Symbol, error) {
+	c.symbolTableMu.RLock()
+	defer c.symbolTableMu.RUnlock()
+
+	return c.symbolTable.Get(name)
+}
+
+// ListSymbols returns all symbols in the cache.
+// Calls RefreshSymbols automatically if symbols not loaded.
+func (c *Client) ListSymbols(ctx context.Context) ([]*symbols.Symbol, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, err
+	}
+
+	c.symbolTableMu.RLock()
+	defer c.symbolTableMu.RUnlock()
+
+	return c.symbolTable.List()
+}
+
+// FindSymbols searches for symbols matching the pattern (case-insensitive substring).
+func (c *Client) FindSymbols(ctx context.Context, pattern string) ([]*symbols.Symbol, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, err
+	}
+
+	c.symbolTableMu.RLock()
+	defer c.symbolTableMu.RUnlock()
+
+	return c.symbolTable.Find(pattern)
+}
+
+// parseArrayAccess parses array notation like "MAIN.myArray[5]" or "MAIN.matrix[2][3]"
+// Returns: base symbol name, array indices, error
+func parseArrayAccess(symbolName string) (string, []int, error) {
+	// Check if there's array notation
+	if !strings.Contains(symbolName, "[") {
+		return symbolName, nil, nil
+	}
+
+	// Find the base name (everything before first '[')
+	firstBracket := strings.Index(symbolName, "[")
+	baseName := symbolName[:firstBracket]
+
+	// Parse indices
+	var indices []int
+	remainder := symbolName[firstBracket:]
+
+	for len(remainder) > 0 && remainder[0] == '[' {
+		closeBracket := strings.Index(remainder, "]")
+		if closeBracket == -1 {
+			return "", nil, fmt.Errorf("invalid array notation: missing ']'")
+		}
+
+		indexStr := remainder[1:closeBracket]
+		var idx int
+		n, err := fmt.Sscanf(indexStr, "%d", &idx)
+		if err != nil || n != 1 {
+			return "", nil, fmt.Errorf("invalid array index: %q", indexStr)
+		}
+		indices = append(indices, idx)
+
+		remainder = remainder[closeBracket+1:]
+	}
+
+	// If there's a remainder (like ".fieldName"), add it to the base name
+	if len(remainder) > 0 {
+		baseName = baseName + remainder
+	}
+
+	return baseName, indices, nil
+}
+
+// extractArrayElementType extracts the element type from an array type name.
+// e.g., "ARRAY [0..9] OF INT" -> "INT"
+// e.g., "ARRAY [0..4] OF TestSt" -> "TestSt"
+func extractArrayElementType(arrayTypeName string) (string, bool) {
+	ofIndex := strings.Index(arrayTypeName, " OF ")
+	if ofIndex == -1 {
+		return "", false
+	}
+	elementType := strings.TrimSpace(arrayTypeName[ofIndex+4:])
+	return elementType, true
+}
+
+// resolveArraySymbol resolves array element access and returns the adjusted symbol info.
+// For "MAIN.myArray[5]", it returns the base symbol with IndexOffset adjusted for element 5.
+// For "MAIN.myArray[5].field", it resolves both array and struct field offsets.
+func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (indexGroup, indexOffset, size uint32, err error) {
+	// First check if there's a struct field path (e.g., "MAIN.aStruct[0].uiTest")
+	// We need to separate: "MAIN.aStruct" + "[0]" + ".uiTest"
+	var arrayBase string
+	var structField string
+
+	// Find if there's a dot after a closing bracket (indicates struct field after array)
+	firstBracket := strings.Index(symbolName, "[")
+	if firstBracket != -1 {
+		closeBracket := strings.Index(symbolName[firstBracket:], "]")
+		if closeBracket != -1 {
+			afterBracket := firstBracket + closeBracket + 1
+			if afterBracket < len(symbolName) && symbolName[afterBracket] == '.' {
+				// We have struct field access after array: split it
+				arrayPart := symbolName[:afterBracket]
+				structField = symbolName[afterBracket+1:] // Skip the dot
+
+				baseName, indices, err := parseArrayAccess(arrayPart)
+				if err != nil {
+					return 0, 0, 0, err
+				}
+				arrayBase = baseName
+
+				// Now handle as "arrayBase[index].field"
+				symbol, err := c.GetSymbol(arrayBase)
+				if err != nil {
+					return 0, 0, 0, fmt.Errorf("resolve symbol %q: %w", arrayBase, err)
+				}
+
+				if len(indices) > 1 {
+					return 0, 0, 0, fmt.Errorf("multi-dimensional arrays not yet supported")
+				}
+
+				// Get array element type
+				elementTypeName, isArray := extractArrayElementType(symbol.Type.Name)
+				if !isArray {
+					return 0, 0, 0, fmt.Errorf("%q is not an array type", arrayBase)
+				}
+
+				// Get element type info
+				elementTypeInfo, err := c.getOrFetchTypeInfo(ctx, elementTypeName)
+				if err != nil {
+					return 0, 0, 0, fmt.Errorf("get element type info for %q: %w", elementTypeName, err)
+				}
+
+				// Calculate array element offset
+				elementOffset := uint32(indices[0]) * elementTypeInfo.Size
+
+				// Now find the struct field offset within the element
+				fieldInfo, found := findFieldInType(elementTypeInfo, structField)
+				if !found {
+					return 0, 0, 0, fmt.Errorf("field %q not found in type %q", structField, elementTypeName)
+				}
+
+				return symbol.IndexGroup, symbol.IndexOffset + elementOffset + fieldInfo.Offset, fieldInfo.Type.Size, nil
+			}
+		}
+	}
+
+	// No struct field after array, use normal array resolution
+	baseName, indices, err := parseArrayAccess(symbolName)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	// Get the base symbol
+	symbol, err := c.GetSymbol(baseName)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("resolve symbol %q: %w", baseName, err)
+	}
+
+	// If no array access, return as-is
+	if len(indices) == 0 {
+		return symbol.IndexGroup, symbol.IndexOffset, symbol.Size, nil
+	}
+
+	// Calculate offset for array access
+	if len(indices) > 1 {
+		return 0, 0, 0, fmt.Errorf("multi-dimensional arrays not yet supported")
+	}
+
+	// For arrays, extract the element type from the array type name
+	// e.g., "ARRAY [0..9] OF INT" -> element type is "INT"
+	elementTypeName, isArray := extractArrayElementType(symbol.Type.Name)
+	if !isArray {
+		// Not an array type, use the symbol's type directly (shouldn't happen with valid array access)
+		elementTypeName = symbol.Type.Name
+	}
+
+	// Get element type info to determine element size
+	elementTypeInfo, err := c.getOrFetchTypeInfo(ctx, elementTypeName)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("get element type info for %q: %w", elementTypeName, err)
+	}
+
+	elementSize := elementTypeInfo.Size
+	offset := uint32(indices[0]) * elementSize
+
+	return symbol.IndexGroup, symbol.IndexOffset + offset, elementSize, nil
+}
+
+// findFieldInType searches for a field in a type's field list.
+func findFieldInType(typeInfo symbols.TypeInfo, fieldName string) (symbols.FieldInfo, bool) {
+	for _, field := range typeInfo.Fields {
+		if field.Name == fieldName {
+			return field, true
+		}
+	}
+	return symbols.FieldInfo{}, false
+}
+
+// ReadSymbol reads data from a PLC symbol by name.
+// Supports array element access using bracket notation: "MAIN.myArray[5]"
+// Automatically loads symbol table on first call.
+func (c *Client) ReadSymbol(ctx context.Context, symbolName string) ([]byte, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, err
+	}
+
+	indexGroup, indexOffset, size, err := c.resolveArraySymbol(ctx, symbolName)
+	if err != nil {
+		return nil, fmt.Errorf("read symbol %q: %w", symbolName, err)
+	}
+
+	return c.Read(ctx, indexGroup, indexOffset, size)
+}
+
+// WriteSymbol writes data to a PLC symbol by name.
+// Supports array element access using bracket notation: "MAIN.myArray[5]"
+// Automatically loads symbol table on first call.
+func (c *Client) WriteSymbol(ctx context.Context, symbolName string, data []byte) error {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return err
+	}
+
+	indexGroup, indexOffset, size, err := c.resolveArraySymbol(ctx, symbolName)
+	if err != nil {
+		return fmt.Errorf("write symbol %q: %w", symbolName, err)
+	}
+
+	if uint32(len(data)) != size {
+		return fmt.Errorf("write symbol %q: data size mismatch (expected %d bytes, got %d)",
+			symbolName, size, len(data))
+	}
+
+	return c.Write(ctx, indexGroup, indexOffset, data)
 }
 
 // ReadDeviceInfo reads the device name and version.
@@ -344,83 +710,4 @@ func (c *Client) ReadWrite(ctx context.Context, indexGroup, indexOffset, readLen
 	}
 
 	return resp.Data, nil
-}
-
-// Subscribe creates a new notification subscription.
-// The returned Subscription will deliver notifications via its Notifications() channel.
-// Call Close() on the Subscription when done to clean up resources.
-func (c *Client) Subscribe(ctx context.Context, opts NotificationOptions) (*Subscription, error) {
-	req := ads.AddDeviceNotificationRequest{
-		IndexGroup:       opts.IndexGroup,
-		IndexOffset:      opts.IndexOffset,
-		Length:           opts.Length,
-		TransmissionMode: opts.TransmissionMode,
-		MaxDelay:         uint32(opts.MaxDelay / time.Millisecond),
-		CycleTime:        uint32(opts.CycleTime / time.Millisecond),
-	}
-	reqData, _ := req.MarshalBinary()
-
-	respPacket, err := c.sendRequest(ctx, ads.CmdAddDeviceNotification, reqData)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp ads.AddDeviceNotificationResponse
-	if err := resp.UnmarshalBinary(respPacket.Data); err != nil {
-		return nil, err
-	}
-
-	if resp.Result != 0 {
-		return nil, ads.Error(resp.Result)
-	}
-
-	// Create subscription
-	sub := &Subscription{
-		handle:  resp.NotificationHandle,
-		client:  c,
-		notifCh: make(chan Notification, 16),
-		closed:  false,
-		closeMu: sync.Mutex{},
-	}
-
-	// Register subscription
-	c.subscriptionsMu.Lock()
-	c.subscriptions[sub.handle] = sub
-	c.subscriptionsMu.Unlock()
-
-	return sub, nil
-}
-
-// unregisterSubscription removes a subscription from the registry.
-func (c *Client) unregisterSubscription(handle uint32) {
-	c.subscriptionsMu.Lock()
-	delete(c.subscriptions, handle)
-	c.subscriptionsMu.Unlock()
-}
-
-// handleNotification processes incoming notification packets and routes them to subscriptions.
-func (c *Client) handleNotification(packet *ams.Packet) {
-	var notifReq ads.DeviceNotificationRequest
-	if err := notifReq.UnmarshalBinary(packet.Data); err != nil {
-		return
-	}
-
-	// Process each stamp in the notification
-	for _, stamp := range notifReq.StampHeaders {
-		// Convert Windows FILETIME to time.Time
-		// FILETIME is 100-nanosecond intervals since 1601-01-01 00:00:00 UTC
-		const fileTimeEpoch = 116444736000000000 // 100ns intervals between 1601 and 1970
-		unixNano := int64(stamp.Timestamp-fileTimeEpoch) * 100
-		timestamp := time.Unix(0, unixNano)
-
-		for _, sample := range stamp.Samples {
-			c.subscriptionsMu.RLock()
-			sub, exists := c.subscriptions[sample.NotificationHandle]
-			c.subscriptionsMu.RUnlock()
-
-			if exists {
-				sub.notify(sample.Data, timestamp)
-			}
-		}
-	}
 }

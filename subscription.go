@@ -35,6 +35,13 @@ type NotificationOptions struct {
 	CycleTime        time.Duration // Cycle time for cyclic notifications
 }
 
+// SymbolNotificationOptions configures a symbol-based notification subscription.
+type SymbolNotificationOptions struct {
+	TransmissionMode ads.TransmissionMode
+	MaxDelay         time.Duration // Maximum delay before notification is sent
+	CycleTime        time.Duration // Cycle time for cyclic notifications
+}
+
 // Notifications returns the channel for receiving notifications.
 // The channel is closed when the subscription is closed.
 func (s *Subscription) Notifications() <-chan Notification {

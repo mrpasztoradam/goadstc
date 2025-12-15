@@ -332,8 +332,11 @@ func (d *DeviceNotificationRequest) UnmarshalBinary(data []byte) error {
 	length := binary.LittleEndian.Uint32(data[0:4])
 	stamps := binary.LittleEndian.Uint32(data[4:8])
 
-	if uint32(len(data)) < 8+length {
-		return fmt.Errorf("ads: insufficient data for device notification")
+	// Length field does not include the first 4 bytes (itself)
+	// Expected total: 4 (length field) + length
+	expectedTotal := 4 + length
+	if uint32(len(data)) < expectedTotal {
+		return fmt.Errorf("ads: insufficient data for device notification (expected %d, got %d)", expectedTotal, len(data))
 	}
 
 	d.StampHeaders = make([]StampHeader, 0, stamps)
