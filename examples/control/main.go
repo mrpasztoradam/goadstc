@@ -4,22 +4,33 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/mrpasztoradam/goadstc"
 	"github.com/mrpasztoradam/goadstc/internal/ads"
+	"github.com/mrpasztoradam/goadstc/internal/ams"
 )
 
 func main() {
+	plcIP := "10.10.0.3:48898"
+	plcNetID := ams.NetID{10, 0, 10, 20, 1, 1}
+	pcNetID := ams.NetID{10, 10, 0, 10, 1, 1}
+
+	fmt.Printf("🔌 Connecting to PLC at %s...\n", plcIP)
 	// Create ADS client
 	client, err := goadstc.New(
-		goadstc.WithTarget("192.168.1.100:48898"),
-		goadstc.WithAMSNetID([6]byte{192, 168, 1, 100, 1, 1}),
+		goadstc.WithTarget(plcIP),
+		goadstc.WithAMSNetID(plcNetID),
+		goadstc.WithSourceNetID(pcNetID),
 		goadstc.WithAMSPort(851),
+		goadstc.WithTimeout(5*time.Second),
 	)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Fatalf("❌ Failed to create client: %v", err)
 	}
 	defer client.Close()
+	fmt.Println("✅ Connected successfully")
+	fmt.Println()
 
 	ctx := context.Background()
 
