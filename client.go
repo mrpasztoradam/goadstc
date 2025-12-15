@@ -363,11 +363,7 @@ func parseArrayAccess(symbolName string) (string, []int, error) {
 	var indices []int
 	remainder := symbolName[firstBracket:]
 	
-	for len(remainder) > 0 {
-		if remainder[0] != '[' {
-			return "", nil, fmt.Errorf("invalid array notation: expected '[' at position %d", len(symbolName)-len(remainder))
-		}
-		
+	for len(remainder) > 0 && remainder[0] == '[' {
 		closeBracket := strings.Index(remainder, "]")
 		if closeBracket == -1 {
 			return "", nil, fmt.Errorf("invalid array notation: missing ']'")
@@ -384,6 +380,11 @@ func parseArrayAccess(symbolName string) (string, []int, error) {
 		indices = append(indices, idx)
 		
 		remainder = remainder[closeBracket+1:]
+	}
+	
+	// If there's a remainder (like ".fieldName"), add it to the base name
+	if len(remainder) > 0 {
+		baseName = baseName + remainder
 	}
 	
 	return baseName, indices, nil
@@ -403,7 +404,67 @@ func extractArrayElementType(arrayTypeName string) (string, bool) {
 
 // resolveArraySymbol resolves array element access and returns the adjusted symbol info.
 // For "MAIN.myArray[5]", it returns the base symbol with IndexOffset adjusted for element 5.
+// For "MAIN.myArray[5].field", it resolves both array and struct field offsets.
 func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (indexGroup, indexOffset, size uint32, err error) {
+	// First check if there's a struct field path (e.g., "MAIN.aStruct[0].uiTest")
+	// We need to separate: "MAIN.aStruct" + "[0]" + ".uiTest"
+	var arrayBase string
+	var structField string
+	
+	// Find if there's a dot after a closing bracket (indicates struct field after array)
+	firstBracket := strings.Index(symbolName, "[")
+	if firstBracket != -1 {
+		closeBracket := strings.Index(symbolName[firstBracket:], "]")
+		if closeBracket != -1 {
+			afterBracket := firstBracket + closeBracket + 1
+			if afterBracket < len(symbolName) && symbolName[afterBracket] == '.' {
+				// We have struct field access after array: split it
+				arrayPart := symbolName[:afterBracket]
+				structField = symbolName[afterBracket+1:] // Skip the dot
+				
+				baseName, indices, err := parseArrayAccess(arrayPart)
+				if err != nil {
+					return 0, 0, 0, err
+				}
+				arrayBase = baseName
+				
+				// Now handle as "arrayBase[index].field"
+				symbol, err := c.GetSymbol(arrayBase)
+				if err != nil {
+					return 0, 0, 0, fmt.Errorf("resolve symbol %q: %w", arrayBase, err)
+				}
+				
+				if len(indices) > 1 {
+					return 0, 0, 0, fmt.Errorf("multi-dimensional arrays not yet supported")
+				}
+				
+				// Get array element type
+				elementTypeName, isArray := extractArrayElementType(symbol.Type.Name)
+				if !isArray {
+					return 0, 0, 0, fmt.Errorf("%q is not an array type", arrayBase)
+				}
+				
+				// Get element type info
+				elementTypeInfo, err := c.getOrFetchTypeInfo(ctx, elementTypeName)
+				if err != nil {
+					return 0, 0, 0, fmt.Errorf("get element type info for %q: %w", elementTypeName, err)
+				}
+				
+				// Calculate array element offset
+				elementOffset := uint32(indices[0]) * elementTypeInfo.Size
+				
+				// Now find the struct field offset within the element
+				fieldInfo, found := findFieldInType(elementTypeInfo, structField)
+				if !found {
+					return 0, 0, 0, fmt.Errorf("field %q not found in type %q", structField, elementTypeName)
+				}
+				
+				return symbol.IndexGroup, symbol.IndexOffset + elementOffset + fieldInfo.Offset, fieldInfo.Type.Size, nil
+			}
+		}
+	}
+	
+	// No struct field after array, use normal array resolution
 	baseName, indices, err := parseArrayAccess(symbolName)
 	if err != nil {
 		return 0, 0, 0, err
@@ -443,6 +504,16 @@ func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (ind
 	offset := uint32(indices[0]) * elementSize
 
 	return symbol.IndexGroup, symbol.IndexOffset + offset, elementSize, nil
+}
+
+// findFieldInType searches for a field in a type's field list.
+func findFieldInType(typeInfo symbols.TypeInfo, fieldName string) (symbols.FieldInfo, bool) {
+	for _, field := range typeInfo.Fields {
+		if field.Name == fieldName {
+			return field, true
+		}
+	}
+	return symbols.FieldInfo{}, false
 }
 
 // ReadSymbol reads data from a PLC symbol by name.
