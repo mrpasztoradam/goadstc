@@ -7,6 +7,7 @@ This guide provides essential context and patterns for AI agents working on this
 **goadstc** is a production-quality Go library for TwinCAT ADS/AMS communication over TCP. It enables Go applications to communicate with Beckhoff PLCs.
 
 ### Core Principles
+
 - **Zero external dependencies** - Standard library only
 - **Type safety** - Strong typing throughout, no `interface{}` abuse
 - **Production ready** - Comprehensive error handling, connection stability, observability
@@ -34,6 +35,7 @@ This guide provides essential context and patterns for AI agents working on this
 ## Domain Knowledge: ADS/AMS Protocol
 
 ### Key Concepts
+
 - **AMS (Automation Message Specification)**: Routing layer with NetID addressing (6-byte identifier like 192.168.1.1.1.1)
 - **ADS (Automation Device Specification)**: Command layer for read/write operations
 - **Index Group/Offset**: Memory addressing scheme (not byte addresses - semantic addressing)
@@ -41,6 +43,7 @@ This guide provides essential context and patterns for AI agents working on this
 - **Notifications**: Push-based real-time updates from PLC to client
 
 ### Protocol Quirks
+
 - **Little-endian** encoding throughout
 - **TCP keepalive required** - PLCs may silently drop idle connections
 - **Symbol table upload** - Large XML-like data, requires extended timeouts
@@ -50,18 +53,21 @@ This guide provides essential context and patterns for AI agents working on this
 ## Coding Conventions
 
 ### File Organization
+
 - **client.go**: Core operations (Read, Write, ReadState, connection lifecycle)
-- **client_[feature].go**: Feature-specific methods (notifications, types, structs)
+- **client\_[feature].go**: Feature-specific methods (notifications, types, structs)
 - **internal/** packages: Protocol implementation details
 - One example per feature in `examples/[feature]/main.go`
 
 ### Naming Patterns
+
 - **Public types**: `Client`, `Subscription`, `DeviceInfo`, `NotificationOptions`
 - **Internal types**: Lower visibility, package-scoped when possible
 - **Options pattern**: Functional options for configuration (`WithTarget`, `WithLogger`, etc.)
 - **Context first**: All I/O operations take `context.Context` as first parameter
 
 ### Error Handling
+
 ```go
 // Always classify errors for observability
 if err != nil {
@@ -74,7 +80,9 @@ if err != nil {
 ```
 
 ### Observability Pattern
+
 All I/O operations must:
+
 1. Start with metrics: `c.metrics.OperationStarted("operation")`
 2. Log at appropriate level (Debug for details, Error for failures)
 3. Track timing: `start := time.Now()`
@@ -82,6 +90,7 @@ All I/O operations must:
 5. Classify errors: `ce := ClassifyError(err, "operation")`
 
 ### Thread Safety
+
 - Use `sync.RWMutex` for read-heavy maps (subscriptions, symbol table)
 - Use `atomic` for counters and flags
 - Document locking order to prevent deadlocks
@@ -90,11 +99,13 @@ All I/O operations must:
 ## Testing Requirements
 
 ### Test Coverage
+
 - All exported functions must have tests
 - Use table-driven tests for multiple scenarios
 - Include edge cases (nil inputs, empty strings, boundary values)
 
 ### Example Pattern
+
 ```go
 func TestFeature(t *testing.T) {
     tests := []struct {
@@ -106,7 +117,7 @@ func TestFeature(t *testing.T) {
         {"valid case", validInput, expectedOutput, false},
         {"error case", invalidInput, nil, true},
     }
-    
+
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             got, err := Function(tt.input)
@@ -124,6 +135,7 @@ func TestFeature(t *testing.T) {
 ## Git Workflow
 
 ### Commit Message Format
+
 ```
 <type>: <short summary>
 
@@ -135,6 +147,7 @@ func TestFeature(t *testing.T) {
 **Types**: `feat`, `fix`, `refactor`, `test`, `docs`, `perf`
 
 ### Good Commit Examples
+
 ```
 feat: add structured logging and metrics
 
@@ -145,6 +158,7 @@ Add comprehensive observability features:
 ```
 
 ### Branch Strategy
+
 - Feature branches: `feat/feature-name`
 - Bug fixes: `fix/issue-description`
 - Main branch: Keep stable and tested
@@ -152,16 +166,17 @@ Add comprehensive observability features:
 ## Common Patterns to Follow
 
 ### 1. Adding New Operations
+
 ```go
 func (c *Client) NewOperation(ctx context.Context, params) (result, error) {
     start := time.Now()
     c.metrics.OperationStarted("new_operation")
     c.logger.Debug("performing operation", "param", value)
-    
+
     // Build request
     req := ads.NewRequest{...}
     reqData, _ := req.MarshalBinary()
-    
+
     // Send request
     respPacket, err := c.sendRequest(ctx, ads.CmdSomething, reqData)
     if err != nil {
@@ -171,7 +186,7 @@ func (c *Client) NewOperation(ctx context.Context, params) (result, error) {
         c.metrics.ErrorOccurred(ce.Category, "new_operation")
         return nil, ce
     }
-    
+
     // Parse response
     var resp ads.NewResponse
     if err := resp.UnmarshalBinary(respPacket.Data); err != nil {
@@ -180,7 +195,7 @@ func (c *Client) NewOperation(ctx context.Context, params) (result, error) {
         c.metrics.ErrorOccurred(ErrorCategoryProtocol, "new_operation")
         return nil, err
     }
-    
+
     // Check ADS error
     if resp.Result != 0 {
         adsErr := ads.Error(resp.Result)
@@ -189,7 +204,7 @@ func (c *Client) NewOperation(ctx context.Context, params) (result, error) {
         c.metrics.ErrorOccurred(ErrorCategoryADS, "new_operation")
         return nil, NewADSError("new_operation", adsErr)
     }
-    
+
     c.metrics.OperationCompleted("new_operation", time.Since(start), nil)
     c.logger.Debug("operation completed", "duration", time.Since(start))
     return result, nil
@@ -197,6 +212,7 @@ func (c *Client) NewOperation(ctx context.Context, params) (result, error) {
 ```
 
 ### 2. Adding New Client Options
+
 ```go
 // WithFeature description of what it does (optional).
 func WithFeature(value Type) Option {
@@ -211,7 +227,9 @@ func WithFeature(value Type) Option {
 ```
 
 ### 3. Adding Examples
+
 Each example should:
+
 - Be runnable with `go run examples/feature/main.go`
 - Use environment variables for configuration
 - Demonstrate one specific feature clearly
@@ -221,6 +239,7 @@ Each example should:
 ## Things to NEVER Change
 
 ### Breaking Changes to Avoid
+
 1. **Public API signatures** - Maintain backward compatibility
 2. **Default behavior** - Opt-in for new features, no breaking existing code
 3. **Error types** - Don't change existing error classifications
@@ -228,12 +247,14 @@ Each example should:
 5. **Zero dependencies** - Never add external dependencies
 
 ### Performance Considerations
+
 - No-op implementations must have zero overhead (check assembly if needed)
 - Avoid allocations in hot paths
 - Use `sync.Pool` for frequently allocated objects if needed
 - Profile before optimizing
 
 ### Security
+
 - Validate all inputs from untrusted sources
 - Don't log sensitive data (use `"password", "***"` pattern)
 - Use constant-time comparison for security-sensitive operations
@@ -241,6 +262,7 @@ Each example should:
 ## File Modification Checklist
 
 When modifying code, ensure:
+
 - [ ] Tests added/updated and passing (`go test ./...`)
 - [ ] Examples updated if public API changed
 - [ ] Documentation updated (inline comments, README if needed)
@@ -253,6 +275,7 @@ When modifying code, ensure:
 ## Quick Reference
 
 ### Build & Test
+
 ```bash
 go build ./...          # Build all packages
 go test ./...          # Run all tests
@@ -261,6 +284,7 @@ go fmt ./...           # Format code
 ```
 
 ### Common Mistakes to Avoid
+
 - ❌ Forgetting context in I/O operations
 - ❌ Not logging errors before returning
 - ❌ Missing metrics tracking
@@ -270,6 +294,7 @@ go fmt ./...           # Format code
 - ❌ Not classifying errors
 
 ### Getting Help
+
 - Read the [TwinCAT ADS specification](https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_ads_intro/index.html)
 - Check existing examples in `examples/`
 - Review similar operations in `client*.go`
@@ -278,6 +303,7 @@ go fmt ./...           # Format code
 ## Future Development Areas
 
 ### Planned Features
+
 - Prometheus metrics exporter
 - Distributed tracing (OpenTelemetry)
 - Connection pooling
@@ -285,6 +311,7 @@ go fmt ./...           # Format code
 - More symbol types
 
 ### Out of Scope
+
 - UDP transport (TCP only by design)
 - Router management (direct connection only)
 - GUI/CLI tools (library only)

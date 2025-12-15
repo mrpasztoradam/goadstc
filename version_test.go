@@ -9,7 +9,7 @@ func TestVersion(t *testing.T) {
 	if v == "" {
 		t.Error("Version() returned empty string")
 	}
-	
+
 	// Should follow semantic versioning format
 	expected := "0.1.0"
 	if v != expected {
@@ -33,7 +33,7 @@ func TestVersionWithPrerelease(t *testing.T) {
 		{1, 0, 0, "", "1.0.0"},
 		{1, 2, 3, "rc.1", "1.2.3-rc.1"},
 	}
-	
+
 	for _, tt := range tests {
 		// Note: We can't actually test this without modifying the constants,
 		// but this documents the expected behavior
@@ -43,18 +43,18 @@ func TestVersionWithPrerelease(t *testing.T) {
 
 func TestGetBuildInfo(t *testing.T) {
 	info := GetBuildInfo()
-	
+
 	// Version should always be available
 	if info.Version == "" {
 		t.Error("GetBuildInfo().Version is empty")
 	}
-	
+
 	// BuildInfo should be valid
 	str := info.String()
 	if str == "" {
 		t.Error("BuildInfo.String() returned empty string")
 	}
-	
+
 	// Should contain the library name
 	if len(str) < len("goadstc") {
 		t.Errorf("BuildInfo.String() = %q, too short", str)
@@ -93,7 +93,7 @@ func TestBuildInfoString(t *testing.T) {
 			want: "goadstc 0.1.0 (commit: abc1234) [v0.1.0] - go1.24",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.info.String()
