@@ -26,6 +26,8 @@ type Client struct {
 	subscriptionsMu sync.RWMutex
 	symbolTable     *symbols.Table
 	symbolTableMu   sync.RWMutex
+	typeRegistry    *symbols.TypeRegistry
+	typeRegistryMu  sync.RWMutex
 }
 
 // DeviceInfo represents device information returned by ReadDeviceInfo.
@@ -142,6 +144,7 @@ func New(opts ...Option) (*Client, error) {
 		sourcePort:    cfg.sourcePort,
 		subscriptions: make(map[uint32]*Subscription),
 		symbolTable:   symbols.NewTable(),
+		typeRegistry:  symbols.NewTypeRegistry(),
 	}
 
 	// Set up notification handler
@@ -978,8 +981,31 @@ func (c *Client) UploadDataTypeTable(ctx context.Context) ([]byte, error) {
 	return readData, nil
 }
 
+// RegisterType registers a custom type definition for automatic struct parsing.
+// This allows ReadStructAsMap to automatically parse structs based on registered type information.
+func (c *Client) RegisterType(typeInfo symbols.TypeInfo) {
+	c.typeRegistryMu.Lock()
+	defer c.typeRegistryMu.Unlock()
+	c.typeRegistry.Register(typeInfo.Name, typeInfo)
+}
+
+// GetRegisteredType retrieves a registered type definition.
+func (c *Client) GetRegisteredType(typeName string) (symbols.TypeInfo, bool) {
+	c.typeRegistryMu.RLock()
+	defer c.typeRegistryMu.RUnlock()
+	return c.typeRegistry.Get(typeName)
+}
+
+// ListRegisteredTypes returns all registered type names.
+func (c *Client) ListRegisteredTypes() []string {
+	c.typeRegistryMu.RLock()
+	defer c.typeRegistryMu.RUnlock()
+	return c.typeRegistry.List()
+}
+
 // ReadStructAsMap reads a struct symbol and returns its fields as a map.
 // The map keys are field names and values are interface{} containing the parsed values.
+// If the struct type is registered via RegisterType, it will use that information for parsing.
 func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[string]interface{}, error) {
 	if err := c.ensureSymbolsLoaded(ctx); err != nil {
 		return nil, err
@@ -1004,7 +1030,27 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 	// Parse the struct based on available type information
 	result := make(map[string]interface{})
 
-	// If we have detailed field information, parse it
+	// Check if type is registered in the type registry
+	var typeInfo symbols.TypeInfo
+	var hasTypeInfo bool
+	
+	c.typeRegistryMu.RLock()
+	typeInfo, hasTypeInfo = c.typeRegistry.Get(symbol.Type.Name)
+	c.typeRegistryMu.RUnlock()
+
+	// Use registered type info if available, otherwise use symbol table info
+	if hasTypeInfo && len(typeInfo.Fields) > 0 {
+		for _, field := range typeInfo.Fields {
+			if int(field.Offset)+int(field.Type.Size) > len(structData) {
+				continue // Skip fields beyond data bounds
+			}
+			fieldData := structData[field.Offset : field.Offset+field.Type.Size]
+			result[field.Name] = parseFieldValue(fieldData, field.Type)
+		}
+		return result, nil
+	}
+
+	// Fall back to symbol table field information
 	if len(symbol.Type.Fields) > 0 {
 		for _, field := range symbol.Type.Fields {
 			if int(field.Offset)+int(field.Type.Size) > len(structData) {
@@ -1018,7 +1064,7 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 		result["_raw"] = structData
 		result["_size"] = len(structData)
 		result["_type"] = symbol.Type.Name
-		result["_note"] = "Detailed field information not available. Use UploadDataTypeTable for full struct parsing."
+		result["_note"] = "Detailed field information not available. Use RegisterType() to define struct layout."
 	}
 
 	return result, nil

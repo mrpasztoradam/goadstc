@@ -182,6 +182,62 @@ for _, sym := range symbols {
 err = client.RefreshSymbols(ctx)
 ```
 
+**Struct Parsing with Type Registration**
+
+```go
+import "github.com/mrpasztoradam/goadstc/internal/symbols"
+
+// Register struct type definition once at startup
+testStType := symbols.TypeInfo{
+    Name:     "TestSt",
+    BaseType: 65, // Struct type
+    Size:     86,
+    IsStruct: true,
+    Fields: []symbols.FieldInfo{
+        {
+            Name:   "field1",
+            Offset: 0,
+            Type: symbols.TypeInfo{
+                Name:     "INT",
+                BaseType: symbols.DataTypeInt16,
+                Size:     2,
+            },
+        },
+        {
+            Name:   "field2",
+            Offset: 2,
+            Type: symbols.TypeInfo{
+                Name:     "UINT",
+                BaseType: symbols.DataTypeUInt16,
+                Size:     2,
+            },
+        },
+        {
+            Name:   "field3",
+            Offset: 4,
+            Type: symbols.TypeInfo{
+                Name:     "STRING(81)",
+                BaseType: symbols.DataTypeString,
+                Size:     82,
+            },
+        },
+    },
+}
+client.RegisterType(testStType)
+
+// Now ReadStructAsMap automatically parses all fields!
+result, err := client.ReadStructAsMap(ctx, "MAIN.myStruct")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Access parsed fields
+field1 := result["field1"].(int16)
+field2 := result["field2"].(uint16)
+field3 := result["field3"].(string)
+fmt.Printf("field1=%d, field2=%d, field3=%q\n", field1, field2, field3)
+```
+
 ### Common Index Groups (Low-Level Access)
 
 - `0x00004020` - PLC memory (%M)
