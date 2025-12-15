@@ -12,15 +12,20 @@ import (
 	"github.com/mrpasztoradam/goadstc/internal/ams"
 )
 
+// NotificationHandler is called when a notification packet is received.
+type NotificationHandler func(*ams.Packet)
+
 type Conn struct {
-	conn      net.Conn
-	mu        sync.Mutex
-	closed    atomic.Bool
-	timeout   time.Duration
-	invokeID  atomic.Uint32
-	responses chan *pendingResponse
-	pending   map[uint32]chan<- *ams.Packet
-	pendingMu sync.RWMutex
+	conn                net.Conn
+	mu                  sync.Mutex
+	closed              atomic.Bool
+	timeout             time.Duration
+	invokeID            atomic.Uint32
+	responses           chan *pendingResponse
+	pending             map[uint32]chan<- *ams.Packet
+	pendingMu           sync.RWMutex
+	notificationHandler NotificationHandler
+	notifHandlerMu      sync.RWMutex
 }
 
 type pendingResponse struct {
@@ -69,6 +74,13 @@ func (c *Conn) Close() error {
 
 func (c *Conn) NextInvokeID() uint32 {
 	return c.invokeID.Add(1)
+}
+
+// SetNotificationHandler sets the handler for notification packets (CommandID 0x0008).
+func (c *Conn) SetNotificationHandler(handler NotificationHandler) {
+	c.notifHandlerMu.Lock()
+	c.notificationHandler = handler
+	c.notifHandlerMu.Unlock()
 }
 
 func (c *Conn) SendRequest(ctx context.Context, req *ams.Packet) (*ams.Packet, error) {
@@ -151,6 +163,19 @@ func (c *Conn) dispatchLoop() {
 			return
 		}
 
+		// Check if this is a notification packet (CommandID 0x0008)
+		if resp.packet.Header.CommandID == 0x0008 {
+			c.notifHandlerMu.RLock()
+			handler := c.notificationHandler
+			c.notifHandlerMu.RUnlock()
+
+			if handler != nil {
+				go handler(resp.packet)
+			}
+			continue
+		}
+
+		// Regular response packet - match by InvokeID
 		c.pendingMu.RLock()
 		ch, ok := c.pending[resp.invokeID]
 		c.pendingMu.RUnlock()

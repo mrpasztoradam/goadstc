@@ -4,6 +4,7 @@ package goadstc
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/mrpasztoradam/goadstc/internal/ads"
@@ -13,11 +14,13 @@ import (
 
 // Client represents an ADS client connection.
 type Client struct {
-	conn        *transport.Conn
-	targetNetID ams.NetID
-	targetPort  ams.Port
-	sourceNetID ams.NetID
-	sourcePort  ams.Port
+	conn            *transport.Conn
+	targetNetID     ams.NetID
+	targetPort      ams.Port
+	sourceNetID     ams.NetID
+	sourcePort      ams.Port
+	subscriptions   map[uint32]*Subscription
+	subscriptionsMu sync.RWMutex
 }
 
 // DeviceInfo represents device information returned by ReadDeviceInfo.
@@ -126,17 +129,35 @@ func New(opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("goadstc: connection failed: %w", err)
 	}
 
-	return &Client{
-		conn:        conn,
-		targetNetID: cfg.targetNetID,
-		targetPort:  cfg.targetPort,
-		sourceNetID: cfg.sourceNetID,
-		sourcePort:  cfg.sourcePort,
-	}, nil
+	client := &Client{
+		conn:          conn,
+		targetNetID:   cfg.targetNetID,
+		targetPort:    cfg.targetPort,
+		sourceNetID:   cfg.sourceNetID,
+		sourcePort:    cfg.sourcePort,
+		subscriptions: make(map[uint32]*Subscription),
+	}
+
+	// Set up notification handler
+	conn.SetNotificationHandler(client.handleNotification)
+
+	return client, nil
 }
 
-// Close closes the client connection.
+// Close closes the client connection and all active subscriptions.
 func (c *Client) Close() error {
+	// Close all subscriptions
+	c.subscriptionsMu.Lock()
+	subs := make([]*Subscription, 0, len(c.subscriptions))
+	for _, sub := range c.subscriptions {
+		subs = append(subs, sub)
+	}
+	c.subscriptionsMu.Unlock()
+
+	for _, sub := range subs {
+		sub.Close()
+	}
+
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -294,4 +315,83 @@ func (c *Client) ReadWrite(ctx context.Context, indexGroup, indexOffset, readLen
 	}
 
 	return resp.Data, nil
+}
+
+// Subscribe creates a new notification subscription.
+// The returned Subscription will deliver notifications via its Notifications() channel.
+// Call Close() on the Subscription when done to clean up resources.
+func (c *Client) Subscribe(ctx context.Context, opts NotificationOptions) (*Subscription, error) {
+	req := ads.AddDeviceNotificationRequest{
+		IndexGroup:       opts.IndexGroup,
+		IndexOffset:      opts.IndexOffset,
+		Length:           opts.Length,
+		TransmissionMode: opts.TransmissionMode,
+		MaxDelay:         uint32(opts.MaxDelay / time.Millisecond),
+		CycleTime:        uint32(opts.CycleTime / time.Millisecond),
+	}
+	reqData, _ := req.MarshalBinary()
+
+	respPacket, err := c.sendRequest(ctx, ads.CmdAddDeviceNotification, reqData)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp ads.AddDeviceNotificationResponse
+	if err := resp.UnmarshalBinary(respPacket.Data); err != nil {
+		return nil, err
+	}
+
+	if resp.Result != 0 {
+		return nil, ads.Error(resp.Result)
+	}
+
+	// Create subscription
+	sub := &Subscription{
+		handle:   resp.NotificationHandle,
+		client:   c,
+		notifCh:  make(chan Notification, 16),
+		closed:   false,
+		closeMu:  sync.Mutex{},
+	}
+
+	// Register subscription
+	c.subscriptionsMu.Lock()
+	c.subscriptions[sub.handle] = sub
+	c.subscriptionsMu.Unlock()
+
+	return sub, nil
+}
+
+// unregisterSubscription removes a subscription from the registry.
+func (c *Client) unregisterSubscription(handle uint32) {
+	c.subscriptionsMu.Lock()
+	delete(c.subscriptions, handle)
+	c.subscriptionsMu.Unlock()
+}
+
+// handleNotification processes incoming notification packets and routes them to subscriptions.
+func (c *Client) handleNotification(packet *ams.Packet) {
+	var notifReq ads.DeviceNotificationRequest
+	if err := notifReq.UnmarshalBinary(packet.Data); err != nil {
+		return
+	}
+
+	// Process each stamp in the notification
+	for _, stamp := range notifReq.StampHeaders {
+		// Convert Windows FILETIME to time.Time
+		// FILETIME is 100-nanosecond intervals since 1601-01-01 00:00:00 UTC
+		const fileTimeEpoch = 116444736000000000 // 100ns intervals between 1601 and 1970
+		unixNano := int64(stamp.Timestamp-fileTimeEpoch) * 100
+		timestamp := time.Unix(0, unixNano)
+
+		for _, sample := range stamp.Samples {
+			c.subscriptionsMu.RLock()
+			sub, exists := c.subscriptions[sample.NotificationHandle]
+			c.subscriptionsMu.RUnlock()
+
+			if exists {
+				sub.notify(sample.Data, timestamp)
+			}
+		}
+	}
 }

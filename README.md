@@ -20,7 +20,6 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 ## What This Library Does NOT Support
 
 - UDP transport (TCP only)
-- ADS notifications (Add/Delete/Device Notification commands)
 - High-level PLC abstractions beyond ADS protocol
 - Router/routing table management
 - TwinCAT-specific symbol resolution
@@ -109,6 +108,39 @@ func main() {
 - `Write(ctx, indexGroup, indexOffset, data)` - Write data to device
 - `ReadState(ctx)` - Read ADS and device state
 - `ReadWrite(ctx, indexGroup, indexOffset, readLength, writeData)` - Combined read/write operation
+- `Subscribe(ctx, opts)` - Create a notification subscription for real-time PLC data monitoring
+
+### Notifications
+
+The library supports ADS notifications for monitoring PLC variables in real-time:
+
+```go
+// Subscribe to variable changes
+sub, err := client.Subscribe(ctx, goadstc.NotificationOptions{
+    IndexGroup:       ads.IndexGroupPLCMemory,
+    IndexOffset:      0x1000,
+    Length:           4,
+    TransmissionMode: ads.TransModeOnChange,  // Notify on change
+    MaxDelay:         100 * time.Millisecond,
+    CycleTime:        50 * time.Millisecond,
+})
+if err != nil {
+    log.Fatal(err)
+}
+defer sub.Close()
+
+// Process notifications
+for notif := range sub.Notifications() {
+    fmt.Printf("Value at %s: %v\n", notif.Timestamp, notif.Data)
+}
+```
+
+Supported transmission modes:
+- `TransModeCyclic` - Send notifications at fixed intervals
+- `TransModeOnChange` - Send only when value changes
+- `TransModeCyclicOnChange` - Combination of both
+
+See [examples/notifications](examples/notifications/main.go) for a complete example.
 
 ### Common Index Groups
 
