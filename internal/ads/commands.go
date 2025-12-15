@@ -22,15 +22,15 @@ const (
 )
 
 const (
-	IndexGroupPLCMemory              uint32 = 0x00004020
-	IndexGroupPLCMemoryBit           uint32 = 0x00004021
-	IndexGroupPhysicalInputs         uint32 = 0x0000F020
-	IndexGroupPhysicalInputsBit      uint32 = 0x0000F021
-	IndexGroupPhysicalOutputs        uint32 = 0x0000F030
-	IndexGroupPhysicalOutputsBit     uint32 = 0x0000F031
-	IndexGroupSumCommandRead         uint32 = 0x0000F080
-	IndexGroupSumCommandWrite        uint32 = 0x0000F081
-	IndexGroupSumCommandReadWrite    uint32 = 0x0000F082
+	IndexGroupPLCMemory           uint32 = 0x00004020
+	IndexGroupPLCMemoryBit        uint32 = 0x00004021
+	IndexGroupPhysicalInputs      uint32 = 0x0000F020
+	IndexGroupPhysicalInputsBit   uint32 = 0x0000F021
+	IndexGroupPhysicalOutputs     uint32 = 0x0000F030
+	IndexGroupPhysicalOutputsBit  uint32 = 0x0000F031
+	IndexGroupSumCommandRead      uint32 = 0x0000F080
+	IndexGroupSumCommandWrite     uint32 = 0x0000F081
+	IndexGroupSumCommandReadWrite uint32 = 0x0000F082
 )
 
 type ADSState uint16
@@ -158,7 +158,7 @@ func (r *ReadDeviceInfoResponse) UnmarshalBinary(data []byte) error {
 	r.MajorVersion = data[4]
 	r.MinorVersion = data[5]
 	r.VersionBuild = binary.LittleEndian.Uint16(data[6:8])
-	
+
 	nameBytes := data[8:24]
 	nameLen := 0
 	for i, b := range nameBytes {

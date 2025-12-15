@@ -5,12 +5,12 @@ import "fmt"
 type Error uint32
 
 const (
-	ErrNoError                           Error = 0x0000
-	ErrInternal                          Error = 0x0001
-	ErrTargetPortNotFound                Error = 0x0006
-	ErrTargetMachineNotFound             Error = 0x0007
-	ErrDeviceInvalidIndexGroup           Error = 0x0702
-	ErrDeviceInvalidIndexOffset          Error = 0x0703
+	ErrNoError                  Error = 0x0000
+	ErrInternal                 Error = 0x0001
+	ErrTargetPortNotFound       Error = 0x0006
+	ErrTargetMachineNotFound    Error = 0x0007
+	ErrDeviceInvalidIndexGroup  Error = 0x0702
+	ErrDeviceInvalidIndexOffset Error = 0x0703
 )
 
 func (e Error) Error() string {

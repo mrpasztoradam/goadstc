@@ -31,12 +31,12 @@ const (
 
 // Common AMS port numbers used by TwinCAT runtime.
 const (
-	PortLogger      Port = 100  // Logger
-	PortEventLogger Port = 110  // EventLogger
-	PortRouter      Port = 1    // AMS Router
+	PortLogger        Port = 100   // Logger
+	PortEventLogger   Port = 110   // EventLogger
+	PortRouter        Port = 1     // AMS Router
 	PortSystemService Port = 10000 // System Service
-	PortPLCRuntime1 Port = 851  // First PLC runtime
-	PortPLCRuntime2 Port = 852  // Second PLC runtime
-	PortPLCRuntime3 Port = 853  // Third PLC runtime
-	PortPLCRuntime4 Port = 854  // Fourth PLC runtime
+	PortPLCRuntime1   Port = 851   // First PLC runtime
+	PortPLCRuntime2   Port = 852   // Second PLC runtime
+	PortPLCRuntime3   Port = 853   // Third PLC runtime
+	PortPLCRuntime4   Port = 854   // Fourth PLC runtime
 )

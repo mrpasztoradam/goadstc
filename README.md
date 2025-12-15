@@ -79,7 +79,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    fmt.Printf("Device: %s (v%d.%d.%d)\n", 
+    fmt.Printf("Device: %s (v%d.%d.%d)\n",
         info.Name, info.MajorVersion, info.MinorVersion, info.VersionBuild)
 
     // Read data from PLC
