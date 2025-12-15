@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/mrpasztoradam/goadstc/internal/ads"
 	"github.com/mrpasztoradam/goadstc/internal/ams"
@@ -1077,6 +1078,148 @@ func (c *Client) WriteString(ctx context.Context, symbolName string, value strin
 		value = value[:maxLen]
 	}
 	copy(data, []byte(value))
+	// data is already zero-filled, so null terminator is implicit
+
+	return c.Write(ctx, indexGroup, indexOffset, data)
+}
+
+// ReadTime reads a TIME value from a symbol and returns it as time.Duration.
+// TIME is stored as a 32-bit signed integer representing milliseconds.
+func (c *Client) ReadTime(ctx context.Context, symbolName string) (time.Duration, error) {
+	val, err := c.ReadInt32(ctx, symbolName)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(val) * time.Millisecond, nil
+}
+
+// WriteTime writes a time.Duration value to a TIME symbol.
+// TIME is stored as a 32-bit signed integer representing milliseconds.
+func (c *Client) WriteTime(ctx context.Context, symbolName string, value time.Duration) error {
+	ms := int32(value / time.Millisecond)
+	return c.WriteInt32(ctx, symbolName, ms)
+}
+
+// ReadDate reads a DATE value from a symbol and returns it as time.Time.
+// DATE is stored as a 32-bit unsigned integer representing seconds since 1970-01-01.
+func (c *Client) ReadDate(ctx context.Context, symbolName string) (time.Time, error) {
+	val, err := c.ReadUint32(ctx, symbolName)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(int64(val), 0), nil
+}
+
+// WriteDate writes a time.Time value to a DATE symbol.
+// DATE is stored as a 32-bit unsigned integer representing seconds since 1970-01-01.
+func (c *Client) WriteDate(ctx context.Context, symbolName string, value time.Time) error {
+	secs := uint32(value.Unix())
+	return c.WriteUint32(ctx, symbolName, secs)
+}
+
+// ReadTimeOfDay reads a TIME_OF_DAY value from a symbol and returns it as time.Duration.
+// TIME_OF_DAY is stored as a 32-bit unsigned integer representing milliseconds since midnight.
+func (c *Client) ReadTimeOfDay(ctx context.Context, symbolName string) (time.Duration, error) {
+	val, err := c.ReadUint32(ctx, symbolName)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(val) * time.Millisecond, nil
+}
+
+// WriteTimeOfDay writes a time.Duration value to a TIME_OF_DAY symbol.
+// TIME_OF_DAY is stored as a 32-bit unsigned integer representing milliseconds since midnight.
+func (c *Client) WriteTimeOfDay(ctx context.Context, symbolName string, value time.Duration) error {
+	ms := uint32(value / time.Millisecond)
+	return c.WriteUint32(ctx, symbolName, ms)
+}
+
+// ReadDateAndTime reads a DATE_AND_TIME value from a symbol and returns it as time.Time.
+// DATE_AND_TIME is stored as a 32-bit unsigned integer representing seconds since 1970-01-01.
+func (c *Client) ReadDateAndTime(ctx context.Context, symbolName string) (time.Time, error) {
+	val, err := c.ReadUint32(ctx, symbolName)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(int64(val), 0), nil
+}
+
+// WriteDateAndTime writes a time.Time value to a DATE_AND_TIME symbol.
+// DATE_AND_TIME is stored as a 32-bit unsigned integer representing seconds since 1970-01-01.
+func (c *Client) WriteDateAndTime(ctx context.Context, symbolName string, value time.Time) error {
+	secs := uint32(value.Unix())
+	return c.WriteUint32(ctx, symbolName, secs)
+}
+
+// ReadWString reads a WSTRING (wide string, UTF-16LE) value from a symbol.
+// Returns the string as UTF-8.
+func (c *Client) ReadWString(ctx context.Context, symbolName string) (string, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return "", err
+	}
+
+	indexGroup, indexOffset, size, err := c.resolveArraySymbol(ctx, symbolName)
+	if err != nil {
+		return "", fmt.Errorf("read wstring %q: %w", symbolName, err)
+	}
+
+	data, err := c.Read(ctx, indexGroup, indexOffset, size)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert UTF-16LE to UTF-8
+	// Find the null terminator (2 bytes of zeros)
+	var length int
+	for i := 0; i < len(data)-1; i += 2 {
+		if data[i] == 0 && data[i+1] == 0 {
+			length = i
+			break
+		}
+	}
+	if length == 0 {
+		length = len(data)
+	}
+
+	// Decode UTF-16LE
+	uint16s := make([]uint16, length/2)
+	for i := 0; i < length/2; i++ {
+		uint16s[i] = uint16(data[i*2]) | uint16(data[i*2+1])<<8
+	}
+
+	return string(utf16.Decode(uint16s)), nil
+}
+
+// WriteWString writes a string value to a WSTRING symbol.
+// The string is converted from UTF-8 to UTF-16LE.
+// WSTRING has a fixed buffer size, and the value is null-terminated and padded with zeros.
+func (c *Client) WriteWString(ctx context.Context, symbolName string, value string) error {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return err
+	}
+
+	indexGroup, indexOffset, size, err := c.resolveArraySymbol(ctx, symbolName)
+	if err != nil {
+		return fmt.Errorf("write wstring %q: %w", symbolName, err)
+	}
+
+	// Create buffer with the string's allocated size
+	data := make([]byte, size)
+
+	// Encode string to UTF-16LE
+	uint16s := utf16.Encode([]rune(value))
+
+	// Calculate max number of UTF-16 code units that fit (leave room for null terminator)
+	maxUnits := (int(size) / 2) - 1
+	if len(uint16s) > maxUnits {
+		uint16s = uint16s[:maxUnits]
+	}
+
+	// Write UTF-16LE bytes
+	for i, u := range uint16s {
+		data[i*2] = byte(u)
+		data[i*2+1] = byte(u >> 8)
+	}
 	// data is already zero-filled, so null terminator is implicit
 
 	return c.Write(ctx, indexGroup, indexOffset, data)
