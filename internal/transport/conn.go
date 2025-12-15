@@ -1,193 +1,165 @@
-package transport
 // Package transport implements TCP transport for AMS/ADS communication.
 package transport
 
 import (
 	"context"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}	}		// If no pending request, ignore the response (could be a notification)		}			}				// Channel full or closed, ignore			default:			case ch <- resp.packet:			select {		if ok && ch != nil {		c.pendingMu.RUnlock()		ch, ok := c.pending[resp.invokeID]		c.pendingMu.RLock()		// Find waiting request		}			return			c.Close()			// Connection error - close all pending requests		if resp.err != nil {	for resp := range c.responses {func (c *Conn) dispatchLoop() {// dispatchLoop dispatches responses to waiting requests.}	}		}			packet:   packet,			invokeID: packet.Header.InvokeID,		c.responses <- &pendingResponse{		// Send to dispatcher		}			return			}				c.responses <- &pendingResponse{err: fmt.Errorf("transport: read packet: %w", err)}			if !c.closed.Load() {		if err != nil {		packet, err := ams.ReadPacket(c.conn)		// Read packet		}			}				return				c.responses <- &pendingResponse{err: fmt.Errorf("transport: set read deadline: %w", err)}			if err := c.conn.SetReadDeadline(time.Now().Add(c.timeout * 2)); err != nil {		if c.timeout > 0 {		// Set read deadline		}			return		if c.closed.Load() {	for {func (c *Conn) readLoop() {// readLoop continuously reads packets from the connection.}	}		return nil, fmt.Errorf("transport: request timeout after %v", c.timeout)	case <-time.After(c.timeout):		return nil, fmt.Errorf("transport: request cancelled: %w", ctx.Err())	case <-ctx.Done():		return resp, nil		}			return nil, fmt.Errorf("transport: connection closed while waiting for response")		if resp == nil {	case resp := <-respCh:	select {	// Wait for response	}		return nil, fmt.Errorf("transport: write request: %w", err)	if err != nil {	c.mu.Unlock()	err := ams.WritePacket(c.conn, req)	c.mu.Lock()	// Send request	}		}			return nil, fmt.Errorf("transport: set write deadline: %w", err)		if err := c.conn.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {	if c.timeout > 0 {	// Set write deadline	}()		c.pendingMu.Unlock()		delete(c.pending, invokeID)		c.pendingMu.Lock()	defer func() {	// Cleanup on exit	c.pendingMu.Unlock()	c.pending[invokeID] = respCh	c.pendingMu.Lock()	invokeID := req.Header.InvokeID	respCh := make(chan *ams.Packet, 1)	// Create response channel for this invoke ID	}		return nil, fmt.Errorf("transport: connection closed")	if c.closed.Load() {func (c *Conn) SendRequest(ctx context.Context, req *ams.Packet) (*ams.Packet, error) {// SendRequest sends an AMS request packet and waits for the response.}	return c.invokeID.Add(1)func (c *Conn) NextInvokeID() uint32 {// NextInvokeID returns the next available invoke ID.}	return err	close(c.responses)	c.pendingMu.Unlock()	c.pending = nil	}		close(ch)	for _, ch := range c.pending {	c.pendingMu.Lock()	// Cancel all pending requests	err := c.conn.Close()	// Close the underlying connection	}		return nil // Already closed	if c.closed.Swap(true) {func (c *Conn) Close() error {// Close closes the TCP connection and cleans up resources.}	return conn, nil	go conn.dispatchLoop()	go conn.readLoop()	// Start response handler goroutine	}		pending:   make(map[uint32]chan<- *ams.Packet),		responses: make(chan *pendingResponse, 16),		timeout:   timeout,		conn:      netConn,	conn := &Conn{	}		return nil, fmt.Errorf("transport: dial %s: %w", address, err)	if err != nil {	netConn, err := dialer.DialContext(ctx, "tcp", address)	}		Timeout: timeout,	dialer := &net.Dialer{func Dial(ctx context.Context, address string, timeout time.Duration) (*Conn, error) {// Dial establishes a TCP connection to the specified address.}	err      error	packet   *ams.Packet	invokeID uint32type pendingResponse struct {}	pendingMu sync.RWMutex	pending   map[uint32]chan<- *ams.Packet	responses chan *pendingResponse	invokeID  atomic.Uint32	timeout   time.Duration	closed    atomic.Bool	mu        sync.Mutex	conn      net.Conntype Conn struct {// Conn represents a TCP connection to an ADS device.)	"github.com/mrpasztoradam/goadstc/internal/ams"	"time"	"sync/atomic"	"sync"	"net"	"fmt"
+	"fmt"
+	"net"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/mrpasztoradam/goadstc/internal/ams"
+)
+
+type Conn struct {
+	conn      net.Conn
+	mu        sync.Mutex
+	closed    atomic.Bool
+	timeout   time.Duration
+	invokeID  atomic.Uint32
+	responses chan *pendingResponse
+	pending   map[uint32]chan<- *ams.Packet
+	pendingMu sync.RWMutex
+}
+
+type pendingResponse struct {
+	invokeID uint32
+	packet   *ams.Packet
+	err      error
+}
+
+func Dial(ctx context.Context, address string, timeout time.Duration) (*Conn, error) {
+	dialer := &net.Dialer{Timeout: timeout}
+	netConn, err := dialer.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("transport: dial %s: %w", address, err)
+	}
+
+	conn := &Conn{
+		conn:      netConn,
+		timeout:   timeout,
+		responses: make(chan *pendingResponse, 16),
+		pending:   make(map[uint32]chan<- *ams.Packet),
+	}
+
+	go conn.readLoop()
+	go conn.dispatchLoop()
+
+	return conn, nil
+}
+
+func (c *Conn) Close() error {
+	if c.closed.Swap(true) {
+		return nil
+	}
+
+	err := c.conn.Close()
+
+	c.pendingMu.Lock()
+	for _, ch := range c.pending {
+		close(ch)
+	}
+	c.pending = nil
+	c.pendingMu.Unlock()
+
+	close(c.responses)
+	return err
+}
+
+func (c *Conn) NextInvokeID() uint32 {
+	return c.invokeID.Add(1)
+}
+
+func (c *Conn) SendRequest(ctx context.Context, req *ams.Packet) (*ams.Packet, error) {
+	if c.closed.Load() {
+		return nil, fmt.Errorf("transport: connection closed")
+	}
+
+	respCh := make(chan *ams.Packet, 1)
+	invokeID := req.Header.InvokeID
+
+	c.pendingMu.Lock()
+	c.pending[invokeID] = respCh
+	c.pendingMu.Unlock()
+
+	defer func() {
+		c.pendingMu.Lock()
+		delete(c.pending, invokeID)
+		c.pendingMu.Unlock()
+	}()
+
+	if c.timeout > 0 {
+		if err := c.conn.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
+			return nil, err
+		}
+	}
+
+	c.mu.Lock()
+	err := ams.WritePacket(c.conn, req)
+	c.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	select {
+	case resp := <-respCh:
+		if resp == nil {
+			return nil, fmt.Errorf("transport: connection closed")
+		}
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(c.timeout):
+		return nil, fmt.Errorf("transport: timeout")
+	}
+}
+
+func (c *Conn) readLoop() {
+	for {
+		if c.closed.Load() {
+			return
+		}
+
+		if c.timeout > 0 {
+			if err := c.conn.SetReadDeadline(time.Now().Add(c.timeout * 2)); err != nil {
+				c.responses <- &pendingResponse{err: err}
+				return
+			}
+		}
+
+		packet, err := ams.ReadPacket(c.conn)
+		if err != nil {
+			if !c.closed.Load() {
+				c.responses <- &pendingResponse{err: err}
+			}
+			return
+		}
+
+		c.responses <- &pendingResponse{
+			invokeID: packet.Header.InvokeID,
+			packet:   packet,
+		}
+	}
+}
+
+func (c *Conn) dispatchLoop() {
+	for resp := range c.responses {
+		if resp.err != nil {
+			c.Close()
+			return
+		}
+
+		c.pendingMu.RLock()
+		ch, ok := c.pending[resp.invokeID]
+		c.pendingMu.RUnlock()
+
+		if ok && ch != nil {
+			select {
+			case ch <- resp.packet:
+			default:
+			}
+		}
+	}
+}

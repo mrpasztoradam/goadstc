@@ -1,4 +1,3 @@
-package ads
 // Package ads implements ADS (Automation Device Specification) command handling.
 package ads
 
@@ -7,360 +6,233 @@ import (
 	"fmt"
 )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}	return nil	w.Result = binary.LittleEndian.Uint32(data[0:4])	}		return fmt.Errorf("ads: write control response requires 4 bytes, got %d", len(data))	if len(data) < 4 {func (w *WriteControlResponse) UnmarshalBinary(data []byte) error {// UnmarshalBinary decodes a 4-byte slice into the WriteControlResponse (little-endian).}	Result uint32 // Error code (0 = success)type WriteControlResponse struct {// WriteControlResponse represents an ADS WriteControl response payload.}	return buf, nil	copy(buf[8:], w.Data)	binary.LittleEndian.PutUint32(buf[4:8], w.Length)	binary.LittleEndian.PutUint16(buf[2:4], w.DeviceState)	binary.LittleEndian.PutUint16(buf[0:2], uint16(w.ADSState))	buf := make([]byte, 8+len(w.Data))func (w *WriteControlRequest) MarshalBinary() ([]byte, error) {// MarshalBinary encodes the WriteControlRequest into a byte slice (little-endian).}	Data        []byte   // Additional data	Length      uint32   // Number of bytes to write	DeviceState uint16   // Device-specific state	ADSState    ADSState // Desired ADS statetype WriteControlRequest struct {// WriteControlRequest represents an ADS WriteControl request payload.}	return nil	copy(r.Data, data[8:8+r.Length])	r.Data = make([]byte, r.Length)	}		return fmt.Errorf("ads: read/write response data mismatch: expected %d bytes, got %d", 8+r.Length, len(data))	if len(data) < 8+int(r.Length) {	r.Length = binary.LittleEndian.Uint32(data[4:8])	r.Result = binary.LittleEndian.Uint32(data[0:4])	}		return fmt.Errorf("ads: read/write response requires at least 8 bytes, got %d", len(data))	if len(data) < 8 {func (r *ReadWriteResponse) UnmarshalBinary(data []byte) error {// UnmarshalBinary decodes a byte slice into the ReadWriteResponse (little-endian).}	Data   []byte // The actual data read	Length uint32 // Number of bytes returned	Result uint32 // Error code (0 = success)type ReadWriteResponse struct {// ReadWriteResponse represents an ADS ReadWrite response payload.}	return buf, nil	copy(buf[16:], r.Data)	binary.LittleEndian.PutUint32(buf[12:16], r.WriteLength)	binary.LittleEndian.PutUint32(buf[8:12], r.ReadLength)	binary.LittleEndian.PutUint32(buf[4:8], r.IndexOffset)	binary.LittleEndian.PutUint32(buf[0:4], r.IndexGroup)	buf := make([]byte, 16+len(r.Data))func (r *ReadWriteRequest) MarshalBinary() ([]byte, error) {// MarshalBinary encodes the ReadWriteRequest into a byte slice (little-endian).}	Data        []byte // The data to write	WriteLength uint32 // Number of bytes to write	ReadLength  uint32 // Number of bytes to read	IndexOffset uint32 // Index offset within the group	IndexGroup  uint32 // Index group identifiertype ReadWriteRequest struct {// ReadWriteRequest represents an ADS ReadWrite request payload.}	return nil	r.DeviceName = string(nameBytes[:nameLen])	}		nameLen = 16	if nameLen == 0 {	}		}			break			nameLen = i		if b == 0 {	for i, b := range nameBytes {	nameLen := 0	// Find null terminator	nameBytes := data[8:24]	// Device name is 16 bytes, null-terminated	r.VersionBuild = binary.LittleEndian.Uint16(data[6:8])	r.MinorVersion = data[5]	r.MajorVersion = data[4]	r.Result = binary.LittleEndian.Uint32(data[0:4])	}		return fmt.Errorf("ads: read device info response requires 24 bytes, got %d", len(data))	if len(data) < 24 {func (r *ReadDeviceInfoResponse) UnmarshalBinary(data []byte) error {// UnmarshalBinary decodes a 24-byte slice into the ReadDeviceInfoResponse (little-endian).}	DeviceName   string // Device name (16 bytes, null-terminated)	VersionBuild uint16 // Version build number	MinorVersion uint8  // Minor version	MajorVersion uint8  // Major version	Result       uint32 // Error code (0 = success)type ReadDeviceInfoResponse struct {// ReadDeviceInfoResponse represents an ADS ReadDeviceInfo response payload.}	return []byte{}, nilfunc (r *ReadDeviceInfoRequest) MarshalBinary() ([]byte, error) {// MarshalBinary encodes the ReadDeviceInfoRequest (returns empty slice).type ReadDeviceInfoRequest struct{}// ReadDeviceInfoRequest represents an ADS ReadDeviceInfo request payload (no data).}	return nil	r.DeviceState = binary.LittleEndian.Uint16(data[6:8])	r.ADSState = ADSState(binary.LittleEndian.Uint16(data[4:6]))	r.Result = binary.LittleEndian.Uint32(data[0:4])	}		return fmt.Errorf("ads: read state response requires 8 bytes, got %d", len(data))	if len(data) < 8 {func (r *ReadStateResponse) UnmarshalBinary(data []byte) error {// UnmarshalBinary decodes an 8-byte slice into the ReadStateResponse (little-endian).}	DeviceState uint16   // Device-specific state	ADSState    ADSState // ADS state	Result      uint32   // Error code (0 = success)type ReadStateResponse struct {// ReadStateResponse represents an ADS ReadState response payload.}	return []byte{}, nilfunc (r *ReadStateRequest) MarshalBinary() ([]byte, error) {// MarshalBinary encodes the ReadStateRequest (returns empty slice).type ReadStateRequest struct{}// ReadStateRequest represents an ADS ReadState request payload (no data).}	return nil	w.Result = binary.LittleEndian.Uint32(data[0:4])	}		return fmt.Errorf("ads: write response requires 4 bytes, got %d", len(data))	if len(data) < 4 {func (w *WriteResponse) UnmarshalBinary(data []byte) error {// UnmarshalBinary decodes a 4-byte slice into the WriteResponse (little-endian).}	Result uint32 // Error code (0 = success)type WriteResponse struct {// WriteResponse represents an ADS Write response payload.}	return buf, nil	copy(buf[12:], w.Data)	binary.LittleEndian.PutUint32(buf[8:12], w.Length)	binary.LittleEndian.PutUint32(buf[4:8], w.IndexOffset)	binary.LittleEndian.PutUint32(buf[0:4], w.IndexGroup)	buf := make([]byte, 12+len(w.Data))func (w *WriteRequest) MarshalBinary() ([]byte, error) {// MarshalBinary encodes the WriteRequest into a byte slice (little-endian).}	Data        []byte // The data to write	Length      uint32 // Number of bytes to write	IndexOffset uint32 // Index offset within the group	IndexGroup  uint32 // Index group identifiertype WriteRequest struct {// WriteRequest represents an ADS Write request payload.}	return nil	copy(r.Data, data[8:8+r.Length])	r.Data = make([]byte, r.Length)	}		return fmt.Errorf("ads: read response data mismatch: expected %d bytes, got %d", 8+r.Length, len(data))	if len(data) < 8+int(r.Length) {	r.Length = binary.LittleEndian.Uint32(data[4:8])	r.Result = binary.LittleEndian.Uint32(data[0:4])	}		return fmt.Errorf("ads: read response requires at least 8 bytes, got %d", len(data))	if len(data) < 8 {func (r *ReadResponse) UnmarshalBinary(data []byte) error {// UnmarshalBinary decodes a byte slice into the ReadResponse (little-endian).}	Data   []byte // The actual data	Length uint32 // Number of bytes returned	Result uint32 // Error code (0 = success)type ReadResponse struct {// ReadResponse represents an ADS Read response payload.}	return buf, nil	binary.LittleEndian.PutUint32(buf[8:12], r.Length)	binary.LittleEndian.PutUint32(buf[4:8], r.IndexOffset)	binary.LittleEndian.PutUint32(buf[0:4], r.IndexGroup)	buf := make([]byte, 12)func (r *ReadRequest) MarshalBinary() ([]byte, error) {// MarshalBinary encodes the ReadRequest into a 12-byte slice (little-endian).}	Length      uint32 // Number of bytes to read	IndexOffset uint32 // Index offset within the group	IndexGroup  uint32 // Index group identifiertype ReadRequest struct {// ReadRequest represents an ADS Read request payload.}	}		return fmt.Sprintf("Unknown(%d)", uint16(s))	default:		return "Stop2"	case StateStop2:		return "Reconfig"	case StateReconfig:		return "Config"	case StateConfig:		return "Resume"	case StateResume:		return "Suspend"	case StateSuspend:		return "Shutdown"	case StateShutdown:		return "Error"	case StateError:		return "PowerGood"	case StatePowerGood:		return "LoadConfig"	case StateLoadConfig:		return "SaveConfig"	case StateSaveConfig:		return "Stop"	case StateStop:		return "Run"	case StateRun:		return "Start"	case StateStart:		return "Init"	case StateInit:		return "Reset"	case StateReset:		return "Idle"	case StateIdle:		return "Invalid"	case StateInvalid:	switch s {func (s ADSState) String() string {// String returns the string representation of the ADS state.)	StateStop2      ADSState = 16 // Stop2 mode (backwards compatibility)	StateReconfig   ADSState = 15 // Reconfig mode	StateConfig     ADSState = 14 // Config mode	StateResume     ADSState = 13 // Resume state	StateSuspend    ADSState = 12 // Suspend state	StateShutdown   ADSState = 11 // Shutdown state	StateError      ADSState = 10 // Error state	StatePowerGood  ADSState = 9  // PowerGood state	StateLoadConfig ADSState = 8  // LoadConfig state	StateSaveConfig ADSState = 7  // SaveConfig state	StateStop       ADSState = 6  // Stop state	StateRun        ADSState = 5  // Run state	StateStart      ADSState = 4  // Start state	StateInit       ADSState = 3  // Init state	StateReset      ADSState = 2  // Reset state	StateIdle       ADSState = 1  // Idle state	StateInvalid    ADSState = 0  // Invalid stateconst (// ADS states as defined in the TwinCAT documentation.type ADSState uint16// ADSState represents the ADS state of a device.)	IndexGroupSumCommandReadWrite uint32 = 0x0000F082	// IndexGroupSumCommandReadWrite is the sum command for multiple read/writes.	IndexGroupSumCommandWrite uint32 = 0x0000F081	// IndexGroupSumCommandWrite is the sum command for multiple writes.	IndexGroupSumCommandRead uint32 = 0x0000F080	// IndexGroupSumCommandRead is the sum command for multiple reads.	IndexGroupPhysicalOutputsBit uint32 = 0x0000F031	// IndexGroupPhysicalOutputsBit is the physical outputs with bit access (%QX field).	IndexGroupPhysicalOutputs uint32 = 0x0000F030	// IndexGroupPhysicalOutputs is the physical outputs (%Q field).	IndexGroupPhysicalInputsBit uint32 = 0x0000F021	// IndexGroupPhysicalInputsBit is the physical inputs with bit access (%IX field).	IndexGroupPhysicalInputs uint32 = 0x0000F020	// IndexGroupPhysicalInputs is the physical inputs (%I field).	IndexGroupPLCMemoryBit uint32 = 0x00004021	// IndexGroupPLCMemoryBit is the PLC memory range with bit access (%MX field).	IndexGroupPLCMemory uint32 = 0x00004020	// IndexGroupPLCMemory is the PLC memory range (%M field).const (// Common index groups for accessing PLC memory and I/O.}	}		return fmt.Sprintf("Unknown(0x%04X)", uint16(c))	default:		return "ReadWrite"	case CmdReadWrite:		return "DeviceNotification"	case CmdDeviceNotification:		return "DelDeviceNotification"	case CmdDelDeviceNotification:		return "AddDeviceNotification"	case CmdAddDeviceNotification:		return "WriteControl"	case CmdWriteControl:		return "ReadState"	case CmdReadState:		return "Write"	case CmdWrite:		return "Read"	case CmdRead:		return "ReadDeviceInfo"	case CmdReadDeviceInfo:		return "Invalid"	case CmdInvalid:	switch c {func (c CommandID) String() string {// String returns the string representation of the command ID.)	CmdReadWrite             CommandID = 0x0009 // Write and read data	CmdDeviceNotification    CommandID = 0x0008 // Notification data from device	CmdDelDeviceNotification CommandID = 0x0007 // Delete notification	CmdAddDeviceNotification CommandID = 0x0006 // Create notification	CmdWriteControl          CommandID = 0x0005 // Change ADS and device status	CmdReadState             CommandID = 0x0004 // Read ADS and device status	CmdWrite                 CommandID = 0x0003 // Write data to ADS device	CmdRead                  CommandID = 0x0002 // Read data from ADS device	CmdReadDeviceInfo        CommandID = 0x0001 // Read device name and version	CmdInvalid               CommandID = 0x0000 // Invalid commandconst (// ADS command IDs as specified in the TwinCAT documentation.type CommandID uint16// CommandID represents an ADS command identifier.
+type CommandID uint16
+
+const (
+	CmdInvalid               CommandID = 0x0000
+	CmdReadDeviceInfo        CommandID = 0x0001
+	CmdRead                  CommandID = 0x0002
+	CmdWrite                 CommandID = 0x0003
+	CmdReadState             CommandID = 0x0004
+	CmdWriteControl          CommandID = 0x0005
+	CmdAddDeviceNotification CommandID = 0x0006
+	CmdDelDeviceNotification CommandID = 0x0007
+	CmdDeviceNotification    CommandID = 0x0008
+	CmdReadWrite             CommandID = 0x0009
+)
+
+const (
+	IndexGroupPLCMemory              uint32 = 0x00004020
+	IndexGroupPLCMemoryBit           uint32 = 0x00004021
+	IndexGroupPhysicalInputs         uint32 = 0x0000F020
+	IndexGroupPhysicalInputsBit      uint32 = 0x0000F021
+	IndexGroupPhysicalOutputs        uint32 = 0x0000F030
+	IndexGroupPhysicalOutputsBit     uint32 = 0x0000F031
+	IndexGroupSumCommandRead         uint32 = 0x0000F080
+	IndexGroupSumCommandWrite        uint32 = 0x0000F081
+	IndexGroupSumCommandReadWrite    uint32 = 0x0000F082
+)
+
+type ADSState uint16
+
+const (
+	StateInvalid    ADSState = 0
+	StateIdle       ADSState = 1
+	StateReset      ADSState = 2
+	StateInit       ADSState = 3
+	StateStart      ADSState = 4
+	StateRun        ADSState = 5
+	StateStop       ADSState = 6
+	StateSaveConfig ADSState = 7
+	StateLoadConfig ADSState = 8
+	StatePowerGood  ADSState = 9
+	StateError      ADSState = 10
+	StateShutdown   ADSState = 11
+	StateSuspend    ADSState = 12
+	StateResume     ADSState = 13
+	StateConfig     ADSState = 14
+	StateReconfig   ADSState = 15
+	StateStop2      ADSState = 16
+)
+
+type ReadRequest struct {
+	IndexGroup  uint32
+	IndexOffset uint32
+	Length      uint32
+}
+
+func (r *ReadRequest) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 12)
+	binary.LittleEndian.PutUint32(buf[0:4], r.IndexGroup)
+	binary.LittleEndian.PutUint32(buf[4:8], r.IndexOffset)
+	binary.LittleEndian.PutUint32(buf[8:12], r.Length)
+	return buf, nil
+}
+
+type ReadResponse struct {
+	Result uint32
+	Length uint32
+	Data   []byte
+}
+
+func (r *ReadResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 8 {
+		return fmt.Errorf("ads: read response requires at least 8 bytes")
+	}
+	r.Result = binary.LittleEndian.Uint32(data[0:4])
+	r.Length = binary.LittleEndian.Uint32(data[4:8])
+	r.Data = make([]byte, r.Length)
+	copy(r.Data, data[8:8+r.Length])
+	return nil
+}
+
+type WriteRequest struct {
+	IndexGroup  uint32
+	IndexOffset uint32
+	Length      uint32
+	Data        []byte
+}
+
+func (w *WriteRequest) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 12+len(w.Data))
+	binary.LittleEndian.PutUint32(buf[0:4], w.IndexGroup)
+	binary.LittleEndian.PutUint32(buf[4:8], w.IndexOffset)
+	binary.LittleEndian.PutUint32(buf[8:12], w.Length)
+	copy(buf[12:], w.Data)
+	return buf, nil
+}
+
+type WriteResponse struct {
+	Result uint32
+}
+
+func (w *WriteResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 4 {
+		return fmt.Errorf("ads: write response requires 4 bytes")
+	}
+	w.Result = binary.LittleEndian.Uint32(data[0:4])
+	return nil
+}
+
+type ReadStateRequest struct{}
+
+func (r *ReadStateRequest) MarshalBinary() ([]byte, error) {
+	return []byte{}, nil
+}
+
+type ReadStateResponse struct {
+	Result      uint32
+	ADSState    ADSState
+	DeviceState uint16
+}
+
+func (r *ReadStateResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 8 {
+		return fmt.Errorf("ads: read state response requires 8 bytes")
+	}
+	r.Result = binary.LittleEndian.Uint32(data[0:4])
+	r.ADSState = ADSState(binary.LittleEndian.Uint16(data[4:6]))
+	r.DeviceState = binary.LittleEndian.Uint16(data[6:8])
+	return nil
+}
+
+type ReadDeviceInfoRequest struct{}
+
+func (r *ReadDeviceInfoRequest) MarshalBinary() ([]byte, error) {
+	return []byte{}, nil
+}
+
+type ReadDeviceInfoResponse struct {
+	Result       uint32
+	MajorVersion uint8
+	MinorVersion uint8
+	VersionBuild uint16
+	DeviceName   string
+}
+
+func (r *ReadDeviceInfoResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 24 {
+		return fmt.Errorf("ads: read device info response requires 24 bytes")
+	}
+	r.Result = binary.LittleEndian.Uint32(data[0:4])
+	r.MajorVersion = data[4]
+	r.MinorVersion = data[5]
+	r.VersionBuild = binary.LittleEndian.Uint16(data[6:8])
+	
+	nameBytes := data[8:24]
+	nameLen := 0
+	for i, b := range nameBytes {
+		if b == 0 {
+			nameLen = i
+			break
+		}
+	}
+	if nameLen == 0 {
+		nameLen = 16
+	}
+	r.DeviceName = string(nameBytes[:nameLen])
+	return nil
+}
+
+type ReadWriteRequest struct {
+	IndexGroup  uint32
+	IndexOffset uint32
+	ReadLength  uint32
+	WriteLength uint32
+	Data        []byte
+}
+
+func (r *ReadWriteRequest) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 16+len(r.Data))
+	binary.LittleEndian.PutUint32(buf[0:4], r.IndexGroup)
+	binary.LittleEndian.PutUint32(buf[4:8], r.IndexOffset)
+	binary.LittleEndian.PutUint32(buf[8:12], r.ReadLength)
+	binary.LittleEndian.PutUint32(buf[12:16], r.WriteLength)
+	copy(buf[16:], r.Data)
+	return buf, nil
+}
+
+type ReadWriteResponse struct {
+	Result uint32
+	Length uint32
+	Data   []byte
+}
+
+func (r *ReadWriteResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 8 {
+		return fmt.Errorf("ads: read/write response requires at least 8 bytes")
+	}
+	r.Result = binary.LittleEndian.Uint32(data[0:4])
+	r.Length = binary.LittleEndian.Uint32(data[4:8])
+	r.Data = make([]byte, r.Length)
+	copy(r.Data, data[8:8+r.Length])
+	return nil
+}
+
+type WriteControlRequest struct {
+	ADSState    ADSState
+	DeviceState uint16
+	Length      uint32
+	Data        []byte
+}
+
+func (w *WriteControlRequest) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 8+len(w.Data))
+	binary.LittleEndian.PutUint16(buf[0:2], uint16(w.ADSState))
+	binary.LittleEndian.PutUint16(buf[2:4], w.DeviceState)
+	binary.LittleEndian.PutUint32(buf[4:8], w.Length)
+	copy(buf[8:], w.Data)
+	return buf, nil
+}
+
+type WriteControlResponse struct {
+	Result uint32
+}
+
+func (w *WriteControlResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 4 {
+		return fmt.Errorf("ads: write control response requires 4 bytes")
+	}
+	w.Result = binary.LittleEndian.Uint32(data[0:4])
+	return nil
+}

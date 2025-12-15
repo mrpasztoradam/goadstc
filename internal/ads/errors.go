@@ -1,143 +1,37 @@
 package ads
-package ads
 
 import "fmt"
 
-// Error represents an ADS error code.
 type Error uint32
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}	return e != ErrNoErrorfunc (e Error) IsError() bool {// IsError returns true if the error code indicates an error.}	}		return fmt.Sprintf("ADS error 0x%04X", uint32(e))	default:		return "device timeout"	case ErrDeviceTimeout:		return "notification subscription failed"	case ErrDeviceNotificationSubscriptionFailed:		return "notification handle not found"	case ErrDeviceNotificationHandleNotFound:		return "access denied"	case ErrDeviceAccessDenied:		return "writing not allowed"	case ErrDeviceWritingNotAllowed:		return "reading not allowed"	case ErrDeviceReadingNotAllowed:		return "invalid index offset"	case ErrDeviceInvalidIndexOffset:		return "invalid index group"	case ErrDeviceInvalidIndexGroup:		return "service not supported"	case ErrDeviceServiceNotSupported:		return "device error"	case ErrDeviceError:		return "invalid AMS fragment"	case ErrInvalidAMSFragment:		return "host unreachable"	case ErrHostUnreachable:		return "TCP send error"	case ErrTCPSendError:		return "no memory"	case ErrNoMemory:		return "invalid AMS port"	case ErrInvalidAMSPort:		return "AMS Sync no index map"	case ErrAMSSyncNoIndexMap:		return "AMS Sync AMS error"	case ErrAMSSyncAMSError:		return "AMS Sync timeout"	case ErrAMSSyncTimeout:		return "AMS Sync Win32 error"	case ErrAMSSyncWin32Error:		return "port already connected"	case ErrPortAlreadyConnected:		return "port disabled"	case ErrPortDisabled:		return "no debug available"	case ErrNoDebugAvailable:		return "low installation level"	case ErrLowInstLevel:		return "invalid AMS NetID"	case ErrInvalidAMSNetID:		return "invalid AMS length"	case ErrInvalidAMSLength:		return "port not connected"	case ErrPortNotConnected:		return "Win32 error"	case ErrWin32Error:		return "unknown AMS command"	case ErrUnknownAMSCmd:		return "no IO"	case ErrNoIO:		return "bad task ID"	case ErrBadTaskID:		return "unknown command ID"	case ErrUnknownCmdID:		return "target machine not found"	case ErrTargetMachineNotFound:		return "target port not found"	case ErrTargetPortNotFound:		return "wrong receive HMSG"	case ErrWrongRecvHMSG:		return "insert mailbox error"	case ErrInsertMailbox:		return "allocation locked memory error"	case ErrAllocLockedMem:		return "no realtime"	case ErrNoRealtime:		return "internal error"	case ErrInternal:		return "no error"	case ErrNoError:	switch e {func (e Error) Error() string {// Error returns the error string representation.)	ErrDeviceTimeout    Error = 0x0709 // Device timeout	ErrDeviceNotificationSubscriptionFailed Error = 0x0708 // Notification subscription failed	ErrDeviceNotificationHandleNotFound Error = 0x0707 // Notification handle not found	ErrDeviceAccessDenied Error = 0x0706 // Access denied	ErrDeviceWritingNotAllowed Error = 0x0705 // Writing not allowed	ErrDeviceReadingNotAllowed Error = 0x0704 // Reading not allowed	ErrDeviceInvalidIndexOffset Error = 0x0703 // Invalid index offset	ErrDeviceInvalidIndexGroup Error = 0x0702 // Invalid index group	ErrDeviceServiceNotSupported Error = 0x0701 // Service not supported	ErrDeviceError      Error = 0x0700 // Device error	// Device-specific errors start at 0x0700	ErrInvalidAMSFragment Error = 0x001C // Invalid AMS fragment	ErrHostUnreachable  Error = 0x001B // Host unreachable	ErrTCPSendError     Error = 0x001A // TCP send error	ErrNoMemory         Error = 0x0019 // No memory	ErrInvalidAMSPort   Error = 0x0018 // Invalid AMS port	ErrAMSSyncNoIndexMap Error = 0x0017 // AMS Sync no index map	ErrAMSSyncAMSError  Error = 0x0016 // AMS Sync AMS error	ErrAMSSyncTimeout   Error = 0x0015 // AMS Sync timeout	ErrAMSSyncWin32Error Error = 0x0014 // AMS Sync Win32 error	ErrPortAlreadyConnected Error = 0x0013 // Port already connected	ErrPortDisabled     Error = 0x0012 // Port disabled	ErrNoDebugAvailable Error = 0x0011 // No debug available	ErrLowInstLevel     Error = 0x0010 // Low installation level	ErrInvalidAMSNetID  Error = 0x000F // Invalid AMS NetID	ErrInvalidAMSLength Error = 0x000E // Invalid AMS length	ErrPortNotConnected Error = 0x000D // Port not connected	ErrWin32Error       Error = 0x000C // Win32 error	ErrUnknownAMSCmd    Error = 0x000B // Unknown AMS command	ErrNoIO             Error = 0x000A // No IO	ErrBadTaskID        Error = 0x0009 // Bad task ID	ErrUnknownCmdID     Error = 0x0008 // Unknown command ID	ErrTargetMachineNotFound Error = 0x0007 // Target machine not found	ErrTargetPortNotFound Error = 0x0006 // Target port not found	ErrWrongRecvHMSG    Error = 0x0005 // Wrong receive HMSG	ErrInsertMailbox    Error = 0x0004 // Insert mailbox error	ErrAllocLockedMem   Error = 0x0003 // Allocation locked memory error	ErrNoRealtime       Error = 0x0002 // No realtime	ErrInternal         Error = 0x0001 // Internal error	ErrNoError          Error = 0x0000 // No errorconst (// Common ADS error codes.
+const (
+	ErrNoError                           Error = 0x0000
+	ErrInternal                          Error = 0x0001
+	ErrTargetPortNotFound                Error = 0x0006
+	ErrTargetMachineNotFound             Error = 0x0007
+	ErrDeviceInvalidIndexGroup           Error = 0x0702
+	ErrDeviceInvalidIndexOffset          Error = 0x0703
+)
+
+func (e Error) Error() string {
+	switch e {
+	case ErrNoError:
+		return "no error"
+	case ErrInternal:
+		return "internal error"
+	case ErrTargetPortNotFound:
+		return "target port not found"
+	case ErrTargetMachineNotFound:
+		return "target machine not found"
+	case ErrDeviceInvalidIndexGroup:
+		return "invalid index group"
+	case ErrDeviceInvalidIndexOffset:
+		return "invalid index offset"
+	default:
+		return fmt.Sprintf("ADS error 0x%04X", uint32(e))
+	}
+}
+
+func (e Error) IsError() bool {
+	return e != ErrNoError
+}
