@@ -15,8 +15,20 @@ import (
 	"github.com/mrpasztoradam/goadstc/internal/transport"
 )
 
+// ConnectionState represents the state of the client connection.
+type ConnectionState = transport.ConnectionState
+
+// Connection state constants
+const (
+	StateConnecting    = transport.StateConnecting
+	StateConnected     = transport.StateConnected
+	StateDisconnecting = transport.StateDisconnecting
+	StateClosed        = transport.StateClosed
+	StateError         = transport.StateError
+)
+
 // ConnectionStateCallback is called when connection state changes.
-type ConnectionStateCallback func(oldState, newState transport.ConnectionState, err error)
+type ConnectionStateCallback func(oldState, newState ConnectionState, err error)
 
 // Client represents an ADS client connection.
 type Client struct {
@@ -44,6 +56,10 @@ type Client struct {
 	shutdownCancel    context.CancelFunc
 	healthCheckTicker *time.Ticker
 	healthCheckStop   chan struct{}
+
+	// Observability
+	logger  Logger
+	metrics Metrics
 }
 
 // DeviceInfo represents device information returned by ReadDeviceInfo.
@@ -74,6 +90,8 @@ type clientConfig struct {
 	maxReconnectDelay time.Duration
 	healthCheckPeriod time.Duration
 	stateCallback     ConnectionStateCallback
+	logger            Logger
+	metrics           Metrics
 }
 
 // WithTarget sets the target TCP address (required).
@@ -181,6 +199,8 @@ func New(opts ...Option) (*Client, error) {
 		sourcePort:        32905,
 		timeout:           5 * time.Second,
 		maxReconnectDelay: 60 * time.Second,
+		logger:            DefaultLogger,
+		metrics:           DefaultMetrics,
 	}
 
 	for _, opt := range opts {
@@ -209,7 +229,15 @@ func New(opts ...Option) (*Client, error) {
 		stateCallback:     cfg.stateCallback,
 		shutdownCtx:       shutdownCtx,
 		shutdownCancel:    shutdownCancel,
+		logger:            cfg.logger,
+		metrics:           cfg.metrics,
 	}
+
+	client.logger.Info("creating new ADS client",
+		"target", cfg.address,
+		"targetNetID", cfg.targetNetID,
+		"targetPort", cfg.targetPort,
+		"autoReconnect", cfg.autoReconnect)
 
 	// Initial connection
 	if err := client.connect(); err != nil {
@@ -231,11 +259,18 @@ func New(opts ...Option) (*Client, error) {
 
 // connect establishes the initial connection to the PLC.
 func (c *Client) connect() error {
+	c.logger.Info("connecting to ADS target", "address", c.config.address)
+	c.metrics.ConnectionAttempts()
+
 	ctx, cancel := context.WithTimeout(context.Background(), c.config.timeout)
 	defer cancel()
 
 	conn, err := transport.Dial(ctx, c.config.address, c.config.timeout)
 	if err != nil {
+		c.logger.Error("connection failed", "error", err)
+		c.metrics.ConnectionFailures()
+		ce := ClassifyError(err, "connect")
+		c.metrics.ErrorOccurred(ce.Category, "connect")
 		return err
 	}
 
@@ -259,18 +294,29 @@ func (c *Client) connect() error {
 
 	respPacket, err := conn.SendRequest(verifyCtx, reqPacket)
 	if err != nil {
+		c.logger.Error("connection verification failed", "error", err)
 		conn.Close()
 		c.conn = nil
+		c.metrics.ConnectionFailures()
+		ce := ClassifyError(err, "connect")
+		c.metrics.ErrorOccurred(ce.Category, "connect")
 		return fmt.Errorf("connection verification failed: %w", err)
 	}
 
 	// Check for ADS errors (e.g., target port not found when PLC is in Config mode)
 	if respPacket.Header.ErrorCode != 0 {
+		adsErr := ads.Error(respPacket.Header.ErrorCode)
+		c.logger.Error("connection verification failed", "adsError", adsErr)
 		conn.Close()
 		c.conn = nil
-		return fmt.Errorf("connection verification failed: %w", ads.Error(respPacket.Header.ErrorCode))
+		c.metrics.ConnectionFailures()
+		c.metrics.ErrorOccurred(ErrorCategoryADS, "connect")
+		return fmt.Errorf("connection verification failed: %w", adsErr)
 	}
 
+	c.logger.Info("connected successfully")
+	c.metrics.ConnectionSuccesses()
+	c.metrics.ConnectionActive(true)
 	c.notifyStateChange(transport.StateConnecting, transport.StateConnected, nil)
 
 	return nil
@@ -278,6 +324,8 @@ func (c *Client) connect() error {
 
 // Close closes the client connection and all active subscriptions.
 func (c *Client) Close() error {
+	c.logger.Info("closing client")
+
 	// Signal shutdown
 	c.shutdownCancel()
 
@@ -301,6 +349,9 @@ func (c *Client) Close() error {
 		sub.Close()
 	}
 
+	c.metrics.ConnectionActive(false)
+	c.metrics.SubscriptionsActive(0)
+
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -323,10 +374,14 @@ func (c *Client) reconnectLoop() {
 			c.reconnectAttempts = attempt
 			c.reconnectMu.Unlock()
 
+			c.logger.Info("attempting reconnection", "attempt", attempt, "backoff", backoff)
+			c.metrics.Reconnections()
+
 			c.notifyStateChange(transport.StateError, transport.StateConnecting,
 				fmt.Errorf("reconnection attempt %d", attempt))
 
 			if err := c.connect(); err != nil {
+				c.logger.Warn("reconnection attempt failed", "attempt", attempt, "error", err)
 				c.notifyStateChange(transport.StateConnecting, transport.StateError, err)
 				// Exponential backoff: 1s, 2s, 4s, 8s, ..., up to maxReconnectDelay
 				backoff *= 2
@@ -339,6 +394,7 @@ func (c *Client) reconnectLoop() {
 			}
 
 			// Reconnection successful!
+			c.logger.Info("reconnection successful", "attempt", attempt)
 			backoff = time.Second
 			attempt = 1
 
@@ -453,15 +509,23 @@ func (c *Client) startHealthCheck(period time.Duration) {
 			case <-c.shutdownCtx.Done():
 				return
 			case <-c.healthCheckTicker.C:
+				c.logger.Debug("performing health check")
+				c.metrics.HealthCheckStarted()
+
 				ctx, cancel := context.WithTimeout(context.Background(), c.config.timeout)
 				_, err := c.ReadState(ctx)
 				cancel()
 
 				if err != nil {
+					c.logger.Warn("health check failed", "error", err)
+					c.metrics.HealthCheckCompleted(false)
 					// Health check failed - trigger reconnection
 					c.triggerReconnection(fmt.Errorf("health check failed: %w", err))
 					return
 				}
+
+				c.logger.Debug("health check passed")
+				c.metrics.HealthCheckCompleted(true)
 			}
 		}
 	}()
@@ -969,6 +1033,13 @@ func (c *Client) ReadDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 
 // Read reads data from the ADS device.
 func (c *Client) Read(ctx context.Context, indexGroup, indexOffset, length uint32) ([]byte, error) {
+	start := time.Now()
+	c.metrics.OperationStarted("read")
+	c.logger.Debug("reading data",
+		"indexGroup", indexGroup,
+		"indexOffset", indexOffset,
+		"length", length)
+
 	req := ads.ReadRequest{
 		IndexGroup:  indexGroup,
 		IndexOffset: indexOffset,
@@ -978,23 +1049,46 @@ func (c *Client) Read(ctx context.Context, indexGroup, indexOffset, length uint3
 
 	respPacket, err := c.sendRequest(ctx, ads.CmdRead, reqData)
 	if err != nil {
-		return nil, err
+		c.logger.Error("read failed", "error", err, "indexGroup", indexGroup, "indexOffset", indexOffset)
+		c.metrics.OperationCompleted("read", time.Since(start), err)
+		ce := ClassifyError(err, "read")
+		ce.IndexGroup = &indexGroup
+		ce.IndexOffset = &indexOffset
+		c.metrics.ErrorOccurred(ce.Category, "read")
+		return nil, ce
 	}
 
 	var resp ads.ReadResponse
 	if err := resp.UnmarshalBinary(respPacket.Data); err != nil {
+		c.logger.Error("read unmarshal failed", "error", err)
+		c.metrics.OperationCompleted("read", time.Since(start), err)
+		c.metrics.ErrorOccurred(ErrorCategoryProtocol, "read")
 		return nil, err
 	}
 
 	if resp.Result != 0 {
-		return nil, ads.Error(resp.Result)
+		adsErr := ads.Error(resp.Result)
+		c.logger.Error("read ADS error", "error", adsErr, "indexGroup", indexGroup, "indexOffset", indexOffset)
+		c.metrics.OperationCompleted("read", time.Since(start), adsErr)
+		c.metrics.ErrorOccurred(ErrorCategoryADS, "read")
+		return nil, NewADSError("read", adsErr)
 	}
 
+	c.metrics.BytesReceived(int64(len(resp.Data)))
+	c.metrics.OperationCompleted("read", time.Since(start), nil)
+	c.logger.Debug("read completed", "bytes", len(resp.Data), "duration", time.Since(start))
 	return resp.Data, nil
 }
 
 // Write writes data to the ADS device.
 func (c *Client) Write(ctx context.Context, indexGroup, indexOffset uint32, data []byte) error {
+	start := time.Now()
+	c.metrics.OperationStarted("write")
+	c.logger.Debug("writing data",
+		"indexGroup", indexGroup,
+		"indexOffset", indexOffset,
+		"length", len(data))
+
 	req := ads.WriteRequest{
 		IndexGroup:  indexGroup,
 		IndexOffset: indexOffset,
@@ -1005,33 +1099,60 @@ func (c *Client) Write(ctx context.Context, indexGroup, indexOffset uint32, data
 
 	respPacket, err := c.sendRequest(ctx, ads.CmdWrite, reqData)
 	if err != nil {
-		return err
+		c.logger.Error("write failed", "error", err, "indexGroup", indexGroup, "indexOffset", indexOffset)
+		c.metrics.OperationCompleted("write", time.Since(start), err)
+		ce := ClassifyError(err, "write")
+		ce.IndexGroup = &indexGroup
+		ce.IndexOffset = &indexOffset
+		c.metrics.ErrorOccurred(ce.Category, "write")
+		return ce
 	}
 
 	var resp ads.WriteResponse
 	if err := resp.UnmarshalBinary(respPacket.Data); err != nil {
+		c.logger.Error("write unmarshal failed", "error", err)
+		c.metrics.OperationCompleted("write", time.Since(start), err)
+		c.metrics.ErrorOccurred(ErrorCategoryProtocol, "write")
 		return err
 	}
 
 	if resp.Result != 0 {
-		return ads.Error(resp.Result)
+		adsErr := ads.Error(resp.Result)
+		c.logger.Error("write ADS error", "error", adsErr, "indexGroup", indexGroup, "indexOffset", indexOffset)
+		c.metrics.OperationCompleted("write", time.Since(start), adsErr)
+		c.metrics.ErrorOccurred(ErrorCategoryADS, "write")
+		return NewADSError("write", adsErr)
 	}
 
+	c.metrics.BytesSent(int64(len(data)))
+	c.metrics.OperationCompleted("write", time.Since(start), nil)
+	c.logger.Debug("write completed", "bytes", len(data), "duration", time.Since(start))
 	return nil
 }
 
 // ReadState reads the ADS and device state.
 func (c *Client) ReadState(ctx context.Context) (*DeviceState, error) {
+	start := time.Now()
+	c.metrics.OperationStarted("read_state")
+	c.logger.Debug("reading device state")
+
 	req := ads.ReadStateRequest{}
 	reqData, _ := req.MarshalBinary()
 
 	respPacket, err := c.sendRequest(ctx, ads.CmdReadState, reqData)
 	if err != nil {
-		return nil, err
+		c.logger.Error("read state failed", "error", err)
+		c.metrics.OperationCompleted("read_state", time.Since(start), err)
+		ce := ClassifyError(err, "read_state")
+		c.metrics.ErrorOccurred(ce.Category, "read_state")
+		return nil, ce
 	}
 
 	var resp ads.ReadStateResponse
 	if err := resp.UnmarshalBinary(respPacket.Data); err != nil {
+		c.logger.Error("read state unmarshal failed", "error", err)
+		c.metrics.OperationCompleted("read_state", time.Since(start), err)
+		c.metrics.ErrorOccurred(ErrorCategoryProtocol, "read_state")
 		return nil, err
 	}
 

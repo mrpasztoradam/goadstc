@@ -43,6 +43,17 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 - ✅ **Request Retry Logic**: Automatic retry with backoff for transient failures
 - ✅ **Subscription Re-establishment**: Automatic restoration after reconnect
 
+### Observability
+
+- ✅ **Structured Logging**: JSON-based logging using Go's standard `log/slog`
+- ✅ **Error Classification**: Automatic categorization of errors (Network, ADS, Protocol, etc.)
+- ✅ **Metrics Collection**: Track operations, performance, and connection health
+- ✅ **Custom Integrations**: Plugin your own logger or metrics backend
+- ✅ **In-Memory Metrics**: Built-in metrics collector for testing and debugging
+- ✅ **Zero Overhead**: No-op implementations by default for minimal performance impact
+
+See [OBSERVABILITY.md](OBSERVABILITY.md) for detailed documentation.
+
 ## What This Library Does NOT Support
 
 - UDP transport (TCP only)
@@ -145,6 +156,7 @@ func main() {
 ### Client Configuration Options
 
 **Basic Configuration:**
+
 - `WithTarget(address)` - Target TCP address (required)
 - `WithAMSNetID(netID)` - Target AMS NetID (required)
 - `WithAMSPort(port)` - Target AMS port (default: 851)
@@ -153,6 +165,7 @@ func main() {
 - `WithTimeout(duration)` - Request timeout (default: 5s)
 
 **Connection Stability:**
+
 - `WithAutoReconnect(enabled)` - Enable automatic reconnection on connection loss
 - `WithMaxReconnectDelay(duration)` - Maximum delay between reconnect attempts (default: 60s)
 - `WithHealthCheck(interval)` - Periodic connection health check interval (0 = disabled)

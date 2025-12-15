@@ -14,6 +14,10 @@ import (
 // The returned Subscription will deliver notifications via its Notifications() channel.
 // Call Close() on the Subscription when done to clean up resources.
 func (c *Client) Subscribe(ctx context.Context, opts NotificationOptions) (*Subscription, error) {
+	start := time.Now()
+	c.metrics.OperationStarted("subscribe")
+	c.logger.Debug("creating subscription", "indexGroup", opts.IndexGroup, "indexOffset", opts.IndexOffset)
+
 	req := ads.AddDeviceNotificationRequest{
 		IndexGroup:       opts.IndexGroup,
 		IndexOffset:      opts.IndexOffset,
@@ -26,16 +30,27 @@ func (c *Client) Subscribe(ctx context.Context, opts NotificationOptions) (*Subs
 
 	respPacket, err := c.sendRequest(ctx, ads.CmdAddDeviceNotification, reqData)
 	if err != nil {
-		return nil, err
+		c.logger.Error("subscribe failed", "error", err)
+		c.metrics.OperationCompleted("subscribe", time.Since(start), err)
+		ce := ClassifyError(err, "subscribe")
+		c.metrics.ErrorOccurred(ce.Category, "subscribe")
+		return nil, ce
 	}
 
 	var resp ads.AddDeviceNotificationResponse
 	if err := resp.UnmarshalBinary(respPacket.Data); err != nil {
+		c.logger.Error("subscribe unmarshal failed", "error", err)
+		c.metrics.OperationCompleted("subscribe", time.Since(start), err)
+		c.metrics.ErrorOccurred(ErrorCategoryProtocol, "subscribe")
 		return nil, err
 	}
 
 	if resp.Result != 0 {
-		return nil, ads.Error(resp.Result)
+		adsErr := ads.Error(resp.Result)
+		c.logger.Error("subscribe ADS error", "error", adsErr)
+		c.metrics.OperationCompleted("subscribe", time.Since(start), adsErr)
+		c.metrics.ErrorOccurred(ErrorCategoryADS, "subscribe")
+		return nil, NewADSError("subscribe", adsErr)
 	}
 
 	// Create subscription
@@ -51,7 +66,12 @@ func (c *Client) Subscribe(ctx context.Context, opts NotificationOptions) (*Subs
 	// Register subscription
 	c.subscriptionsMu.Lock()
 	c.subscriptions[sub.handle] = sub
+	subCount := len(c.subscriptions)
 	c.subscriptionsMu.Unlock()
+
+	c.metrics.SubscriptionsActive(subCount)
+	c.metrics.OperationCompleted("subscribe", time.Since(start), nil)
+	c.logger.Info("subscription created", "handle", sub.handle, "activeSubscriptions", subCount)
 
 	return sub, nil
 }
@@ -89,13 +109,19 @@ func (c *Client) SubscribeSymbol(ctx context.Context, symbolName string, opts Sy
 func (c *Client) unregisterSubscription(handle uint32) {
 	c.subscriptionsMu.Lock()
 	delete(c.subscriptions, handle)
+	subCount := len(c.subscriptions)
 	c.subscriptionsMu.Unlock()
+
+	c.metrics.SubscriptionsActive(subCount)
+	c.logger.Debug("subscription unregistered", "handle", handle, "activeSubscriptions", subCount)
 }
 
 // handleNotification processes incoming notification packets and routes them to subscriptions.
 func (c *Client) handleNotification(packet *ams.Packet) {
 	var notifReq ads.DeviceNotificationRequest
 	if err := notifReq.UnmarshalBinary(packet.Data); err != nil {
+		c.logger.Error("failed to unmarshal notification", "error", err)
+		c.metrics.ErrorOccurred(ErrorCategoryProtocol, "notification")
 		return
 	}
 
@@ -113,7 +139,12 @@ func (c *Client) handleNotification(packet *ams.Packet) {
 			c.subscriptionsMu.RUnlock()
 
 			if exists {
+				c.metrics.NotificationReceived()
+				c.logger.Debug("notification received", "handle", sample.NotificationHandle, "bytes", len(sample.Data))
 				sub.notify(sample.Data, timestamp)
+			} else {
+				c.logger.Warn("notification for unknown handle", "handle", sample.NotificationHandle)
+				c.metrics.NotificationDropped()
 			}
 		}
 	}
