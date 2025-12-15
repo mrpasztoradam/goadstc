@@ -33,6 +33,27 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 - ✅ **Unicode Strings**: Full WSTRING support with UTF-16LE encoding
 - ✅ **Symbol-Based Notifications**: Subscribe to PLC variables by name
 
+### Connection Stability
+
+- ✅ **TCP Keepalive**: 30-second intervals with NoDelay optimization
+- ✅ **Graceful Shutdown**: 5-second timeout for pending operations
+- ✅ **Connection State Tracking**: Monitor connection lifecycle with callbacks
+- ✅ **Automatic Reconnection**: Exponential backoff with configurable max delay
+- ✅ **Health Monitoring**: Periodic connection health checks
+- ✅ **Request Retry Logic**: Automatic retry with backoff for transient failures
+- ✅ **Subscription Re-establishment**: Automatic restoration after reconnect
+
+### Observability
+
+- ✅ **Structured Logging**: JSON-based logging using Go's standard `log/slog`
+- ✅ **Error Classification**: Automatic categorization of errors (Network, ADS, Protocol, etc.)
+- ✅ **Metrics Collection**: Track operations, performance, and connection health
+- ✅ **Custom Integrations**: Plugin your own logger or metrics backend
+- ✅ **In-Memory Metrics**: Built-in metrics collector for testing and debugging
+- ✅ **Zero Overhead**: No-op implementations by default for minimal performance impact
+
+See [OBSERVABILITY.md](OBSERVABILITY.md) for detailed documentation.
+
 ## What This Library Does NOT Support
 
 - UDP transport (TCP only)
@@ -43,6 +64,23 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 ```bash
 go get github.com/mrpasztoradam/goadstc
 ```
+
+## Version Information
+
+The library follows [Semantic Versioning](https://semver.org/). You can query version information programmatically:
+
+```go
+import "github.com/mrpasztoradam/goadstc"
+
+// Get version string
+version := goadstc.Version() // e.g., "0.1.0"
+
+// Get detailed build information
+info := goadstc.GetBuildInfo()
+fmt.Println(info.String()) // Includes git commit, tag, Go version, etc.
+```
+
+See [examples/version/](examples/version/) for a complete example.
 
 ## Project Structure
 
@@ -134,12 +172,21 @@ func main() {
 
 ### Client Configuration Options
 
+**Basic Configuration:**
+
 - `WithTarget(address)` - Target TCP address (required)
 - `WithAMSNetID(netID)` - Target AMS NetID (required)
 - `WithAMSPort(port)` - Target AMS port (default: 851)
 - `WithSourceNetID(netID)` - Source AMS NetID (optional)
 - `WithSourcePort(port)` - Source AMS port (default: 32905)
 - `WithTimeout(duration)` - Request timeout (default: 5s)
+
+**Connection Stability:**
+
+- `WithAutoReconnect(enabled)` - Enable automatic reconnection on connection loss
+- `WithMaxReconnectDelay(duration)` - Maximum delay between reconnect attempts (default: 60s)
+- `WithHealthCheck(interval)` - Periodic connection health check interval (0 = disabled)
+- `WithStateCallback(callback)` - Receive connection state change notifications
 
 ### Core Methods
 
@@ -416,6 +463,7 @@ err = client.WriteControl(ctx, ads.StateRun, 0, nil) // Start PLC
 See the [`examples/`](examples/) directory for complete working examples:
 
 - [`examples/arrays/`](examples/arrays/) - Array element access and struct arrays
+- [`examples/autoreconnect/`](examples/autoreconnect/) - Automatic reconnection and connection monitoring
 - [`examples/comprehensive/`](examples/comprehensive/) - Complete feature demonstration
 - [`examples/control/`](examples/control/) - PLC control operations
 - [`examples/notifications/`](examples/notifications/) - Real-time notifications

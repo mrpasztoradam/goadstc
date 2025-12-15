@@ -45,7 +45,8 @@ func main() {
 		log.Fatalf("❌ Failed to create client: %v", err)
 	}
 	defer client.Close()
-	fmt.Println("✅ Connected successfully\n")
+	fmt.Println("✅ Connected successfully")
+	fmt.Println()
 
 	ctx := context.Background()
 
@@ -56,7 +57,8 @@ func main() {
 	if err := testReadDeviceInfo(ctx, client); err != nil {
 		log.Printf("❌ Test 1 failed: %v\n\n", err)
 	} else {
-		fmt.Println("✅ Test 1 passed\n")
+		fmt.Println("✅ Test 1 passed")
+		fmt.Println()
 	}
 
 	// Test 2: ReadState
@@ -67,7 +69,8 @@ func main() {
 	if err != nil {
 		log.Printf("❌ Test 2 failed: %v\n\n", err)
 	} else {
-		fmt.Println("✅ Test 2 passed\n")
+		fmt.Println("✅ Test 2 passed")
+		fmt.Println()
 	}
 
 	// Test 3: Read
@@ -77,7 +80,8 @@ func main() {
 	if err := testRead(ctx, client); err != nil {
 		log.Printf("❌ Test 3 failed: %v\n\n", err)
 	} else {
-		fmt.Println("✅ Test 3 passed\n")
+		fmt.Println("✅ Test 3 passed")
+		fmt.Println()
 	}
 
 	// Test 4: Write
@@ -87,7 +91,8 @@ func main() {
 	if err := testWrite(ctx, client); err != nil {
 		log.Printf("❌ Test 4 failed: %v\n\n", err)
 	} else {
-		fmt.Println("✅ Test 4 passed\n")
+		fmt.Println("✅ Test 4 passed")
+		fmt.Println()
 	}
 
 	// Test 5: ReadWrite
@@ -97,7 +102,8 @@ func main() {
 	if err := testReadWrite(ctx, client); err != nil {
 		log.Printf("❌ Test 5 failed: %v\n\n", err)
 	} else {
-		fmt.Println("✅ Test 5 passed\n")
+		fmt.Println("✅ Test 5 passed")
+		fmt.Println()
 	}
 
 	// Test 6: Notifications
@@ -107,7 +113,8 @@ func main() {
 	if err := testNotifications(ctx, client); err != nil {
 		log.Printf("❌ Test 6 failed: %v\n\n", err)
 	} else {
-		fmt.Println("✅ Test 6 passed\n")
+		fmt.Println("✅ Test 6 passed")
+		fmt.Println()
 	}
 
 	// Test 7: WriteControl
@@ -117,7 +124,8 @@ func main() {
 	if err := testWriteControl(ctx, client, initialState); err != nil {
 		log.Printf("❌ Test 7 failed: %v\n\n", err)
 	} else {
-		fmt.Println("✅ Test 7 passed\n")
+		fmt.Println("✅ Test 7 passed")
+		fmt.Println()
 	}
 
 	// Summary

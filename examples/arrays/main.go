@@ -52,7 +52,8 @@ func main() {
 			fmt.Printf("   %s = %d\n", symbolName, value)
 		}
 	}
-	fmt.Println("✅ Test 1 complete\n")
+	fmt.Println("✅ Test 1 complete")
+	fmt.Println()
 
 	// Test 2: Write to array elements
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -85,7 +86,8 @@ func main() {
 			}
 		}
 	}
-	fmt.Println("✅ Test 2 complete\n")
+	fmt.Println("✅ Test 2 complete")
+	fmt.Println()
 
 	// Test 3: Read array of struct elements
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -104,7 +106,8 @@ func main() {
 		jsonData, _ := json.MarshalIndent(structData, "   ", "  ")
 		fmt.Printf("   %s:\n%s\n\n", symbolName, string(jsonData))
 	}
-	fmt.Println("✅ Test 3 complete\n")
+	fmt.Println("✅ Test 3 complete")
+	fmt.Println()
 
 	// Test 4: Write to struct array elements
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -153,7 +156,8 @@ func main() {
 		jsonData, _ := json.MarshalIndent(structData, "   ", "  ")
 		fmt.Printf("   %s after write:\n%s\n", symbolName, string(jsonData))
 	}
-	fmt.Println("✅ Test 4 complete\n")
+	fmt.Println("✅ Test 4 complete")
+	fmt.Println()
 
 	// Test 5: String operations
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -205,7 +209,8 @@ func main() {
 		jsonData, _ := json.MarshalIndent(structData, "   ", "  ")
 		fmt.Printf("   MAIN.aStruct[0]:\n%s\n", string(jsonData))
 	}
-	fmt.Println("✅ Test 5 complete\n")
+	fmt.Println("✅ Test 5 complete")
+	fmt.Println()
 
 	fmt.Println("╔══════════════════════════════════════════════════════════╗")
 	fmt.Println("║              Milestone 5 Complete!                       ║")
