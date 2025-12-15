@@ -41,7 +41,7 @@ func main() {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("📖 Test 1: Read Array of INT Elements")
 	fmt.Println("═══════════════════════════════════════════════════════════")
-	
+
 	fmt.Println("   Reading MAIN.aInt[0], MAIN.aInt[1], MAIN.aInt[2]...")
 	for i := 0; i < 3; i++ {
 		symbolName := fmt.Sprintf("MAIN.aInt[%d]", i)
@@ -58,7 +58,7 @@ func main() {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("✍️  Test 2: Write to Array Elements")
 	fmt.Println("═══════════════════════════════════════════════════════════")
-	
+
 	testValues := []int16{100, 200, 300}
 	fmt.Println("   Writing values [100, 200, 300] to MAIN.aInt[0..2]...")
 	for i, val := range testValues {
@@ -69,7 +69,7 @@ func main() {
 			fmt.Printf("   ✅ Wrote %d to %s\n", val, symbolName)
 		}
 	}
-	
+
 	fmt.Println("\n   Verifying writes...")
 	for i := 0; i < 3; i++ {
 		symbolName := fmt.Sprintf("MAIN.aInt[%d]", i)
@@ -91,7 +91,7 @@ func main() {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("📖 Test 3: Read Array of Struct Elements")
 	fmt.Println("═══════════════════════════════════════════════════════════")
-	
+
 	fmt.Println("   Reading MAIN.aStruct[0] and MAIN.aStruct[1]...")
 	for i := 0; i < 2; i++ {
 		symbolName := fmt.Sprintf("MAIN.aStruct[%d]", i)
@@ -100,7 +100,7 @@ func main() {
 			log.Printf("   ⚠️  Failed to read %s: %v", symbolName, err)
 			continue
 		}
-		
+
 		jsonData, _ := json.MarshalIndent(structData, "   ", "  ")
 		fmt.Printf("   %s:\n%s\n\n", symbolName, string(jsonData))
 	}
@@ -110,9 +110,9 @@ func main() {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("✍️  Test 4: Write to Struct Array Elements")
 	fmt.Println("═══════════════════════════════════════════════════════════")
-	
+
 	fmt.Println("   Writing to MAIN.aStruct[0] fields using type-safe methods...")
-	
+
 	// Write individual fields of the struct using dot notation
 	// TestSt has: uiTest (UINT), iTest (INT), sTest (STRING)
 	if err := client.WriteUint16(ctx, "MAIN.aStruct[0].uiTest", 999); err != nil {
@@ -120,13 +120,13 @@ func main() {
 	} else {
 		fmt.Println("   ✅ Wrote 999 to MAIN.aStruct[0].uiTest")
 	}
-	
+
 	if err := client.WriteInt16(ctx, "MAIN.aStruct[0].iTest", -123); err != nil {
 		log.Printf("   ⚠️  Failed to write iTest: %v", err)
 	} else {
 		fmt.Println("   ✅ Wrote -123 to MAIN.aStruct[0].iTest")
 	}
-	
+
 	// Write another struct element
 	fmt.Println("\n   Writing to MAIN.aStruct[1] fields...")
 	if err := client.WriteUint16(ctx, "MAIN.aStruct[1].uiTest", 777); err != nil {
@@ -134,13 +134,13 @@ func main() {
 	} else {
 		fmt.Println("   ✅ Wrote 777 to MAIN.aStruct[1].uiTest")
 	}
-	
+
 	if err := client.WriteInt16(ctx, "MAIN.aStruct[1].iTest", 456); err != nil {
 		log.Printf("   ⚠️  Failed to write iTest: %v", err)
 	} else {
 		fmt.Println("   ✅ Wrote 456 to MAIN.aStruct[1].iTest")
 	}
-	
+
 	fmt.Println("\n   Verifying writes by reading both structs...")
 	for i := 0; i < 2; i++ {
 		symbolName := fmt.Sprintf("MAIN.aStruct[%d]", i)
@@ -149,11 +149,63 @@ func main() {
 			log.Printf("   ⚠️  Failed to read %s: %v", symbolName, err)
 			continue
 		}
-		
+
 		jsonData, _ := json.MarshalIndent(structData, "   ", "  ")
 		fmt.Printf("   %s after write:\n%s\n", symbolName, string(jsonData))
 	}
 	fmt.Println("✅ Test 4 complete\n")
+
+	// Test 5: String operations
+	fmt.Println("═══════════════════════════════════════════════════════════")
+	fmt.Println("📝 Test 5: String Operations")
+	fmt.Println("═══════════════════════════════════════════════════════════")
+
+	// Test basic string read/write
+	fmt.Println("   Reading MAIN.sString...")
+	strValue, err := client.ReadString(ctx, "MAIN.sString")
+	if err != nil {
+		log.Printf("   ⚠️  Failed to read: %v", err)
+	} else {
+		fmt.Printf("   Current value: %q\n", strValue)
+	}
+
+	fmt.Println("\n   Writing \"Hello Arrays!\" to MAIN.sString...")
+	if err := client.WriteString(ctx, "MAIN.sString", "Hello Arrays!"); err != nil {
+		log.Printf("   ⚠️  Failed to write: %v", err)
+	} else {
+		fmt.Println("   ✅ Write successful")
+	}
+
+	fmt.Println("\n   Verifying write...")
+	strValue, err = client.ReadString(ctx, "MAIN.sString")
+	if err != nil {
+		log.Printf("   ⚠️  Failed to read: %v", err)
+	} else {
+		fmt.Printf("   New value: %q", strValue)
+		if strValue == "Hello Arrays!" {
+			fmt.Println(" ✅")
+		} else {
+			fmt.Println(" ❌")
+		}
+	}
+
+	// Test string in struct array
+	fmt.Println("\n   Writing to string field in struct array...")
+	if err := client.WriteString(ctx, "MAIN.aStruct[0].sTest", "Array String!"); err != nil {
+		log.Printf("   ⚠️  Failed to write: %v", err)
+	} else {
+		fmt.Println("   ✅ Wrote \"Array String!\" to MAIN.aStruct[0].sTest")
+	}
+
+	fmt.Println("\n   Reading back struct with string field...")
+	structData, err := client.ReadStructAsMap(ctx, "MAIN.aStruct[0]")
+	if err != nil {
+		log.Printf("   ⚠️  Failed to read: %v", err)
+	} else {
+		jsonData, _ := json.MarshalIndent(structData, "   ", "  ")
+		fmt.Printf("   MAIN.aStruct[0]:\n%s\n", string(jsonData))
+	}
+	fmt.Println("✅ Test 5 complete\n")
 
 	fmt.Println("╔══════════════════════════════════════════════════════════╗")
 	fmt.Println("║              Milestone 5 Complete!                       ║")
@@ -166,13 +218,17 @@ func main() {
 	fmt.Println("  ✅ Works with primitive types (INT, UINT, etc.)")
 	fmt.Println("  ✅ Works with struct arrays (read and write)")
 	fmt.Println("  ✅ Write to struct array fields using dot notation")
+	fmt.Println("  ✅ String read/write operations")
+	fmt.Println("  ✅ Strings in struct arrays")
 	fmt.Println("  ✅ Automatic offset calculation")
 	fmt.Println("  ✅ Type-safe operations")
 	fmt.Println()
 	fmt.Println("  Usage:")
 	fmt.Println("    client.ReadInt16(ctx, \"MAIN.myArray[5]\")")
 	fmt.Println("    client.WriteInt16(ctx, \"MAIN.myArray[5]\", value)")
+	fmt.Println("    client.ReadString(ctx, \"MAIN.myString\")")
+	fmt.Println("    client.WriteString(ctx, \"MAIN.myString\", \"value\")")
 	fmt.Println("    client.ReadStructAsMap(ctx, \"MAIN.structArray[2]\")")
 	fmt.Println("    client.WriteUint16(ctx, \"MAIN.structArray[2].field\", value)")
+	fmt.Println("    client.WriteString(ctx, \"MAIN.structArray[2].text\", \"value\")")
 }
-

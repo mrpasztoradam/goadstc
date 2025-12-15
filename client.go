@@ -358,35 +358,35 @@ func parseArrayAccess(symbolName string) (string, []int, error) {
 	// Find the base name (everything before first '[')
 	firstBracket := strings.Index(symbolName, "[")
 	baseName := symbolName[:firstBracket]
-	
+
 	// Parse indices
 	var indices []int
 	remainder := symbolName[firstBracket:]
-	
+
 	for len(remainder) > 0 && remainder[0] == '[' {
 		closeBracket := strings.Index(remainder, "]")
 		if closeBracket == -1 {
 			return "", nil, fmt.Errorf("invalid array notation: missing ']'")
 		}
-		
+
 		indexStr := remainder[1:closeBracket]
 		index, err := fmt.Sscanf(indexStr, "%d", new(int))
 		if err != nil || index != 1 {
 			return "", nil, fmt.Errorf("invalid array index: %q", indexStr)
 		}
-		
+
 		var idx int
 		fmt.Sscanf(indexStr, "%d", &idx)
 		indices = append(indices, idx)
-		
+
 		remainder = remainder[closeBracket+1:]
 	}
-	
+
 	// If there's a remainder (like ".fieldName"), add it to the base name
 	if len(remainder) > 0 {
 		baseName = baseName + remainder
 	}
-	
+
 	return baseName, indices, nil
 }
 
@@ -410,7 +410,7 @@ func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (ind
 	// We need to separate: "MAIN.aStruct" + "[0]" + ".uiTest"
 	var arrayBase string
 	var structField string
-	
+
 	// Find if there's a dot after a closing bracket (indicates struct field after array)
 	firstBracket := strings.Index(symbolName, "[")
 	if firstBracket != -1 {
@@ -421,49 +421,49 @@ func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (ind
 				// We have struct field access after array: split it
 				arrayPart := symbolName[:afterBracket]
 				structField = symbolName[afterBracket+1:] // Skip the dot
-				
+
 				baseName, indices, err := parseArrayAccess(arrayPart)
 				if err != nil {
 					return 0, 0, 0, err
 				}
 				arrayBase = baseName
-				
+
 				// Now handle as "arrayBase[index].field"
 				symbol, err := c.GetSymbol(arrayBase)
 				if err != nil {
 					return 0, 0, 0, fmt.Errorf("resolve symbol %q: %w", arrayBase, err)
 				}
-				
+
 				if len(indices) > 1 {
 					return 0, 0, 0, fmt.Errorf("multi-dimensional arrays not yet supported")
 				}
-				
+
 				// Get array element type
 				elementTypeName, isArray := extractArrayElementType(symbol.Type.Name)
 				if !isArray {
 					return 0, 0, 0, fmt.Errorf("%q is not an array type", arrayBase)
 				}
-				
+
 				// Get element type info
 				elementTypeInfo, err := c.getOrFetchTypeInfo(ctx, elementTypeName)
 				if err != nil {
 					return 0, 0, 0, fmt.Errorf("get element type info for %q: %w", elementTypeName, err)
 				}
-				
+
 				// Calculate array element offset
 				elementOffset := uint32(indices[0]) * elementTypeInfo.Size
-				
+
 				// Now find the struct field offset within the element
 				fieldInfo, found := findFieldInType(elementTypeInfo, structField)
 				if !found {
 					return 0, 0, 0, fmt.Errorf("field %q not found in type %q", structField, elementTypeName)
 				}
-				
+
 				return symbol.IndexGroup, symbol.IndexOffset + elementOffset + fieldInfo.Offset, fieldInfo.Type.Size, nil
 			}
 		}
 	}
-	
+
 	// No struct field after array, use normal array resolution
 	baseName, indices, err := parseArrayAccess(symbolName)
 	if err != nil {
@@ -959,6 +959,22 @@ func (c *Client) ReadFloat64(ctx context.Context, symbolName string) (float64, e
 	return math.Float64frombits(bits), nil
 }
 
+// ReadString reads a STRING value from a symbol by name.
+// TwinCAT strings are null-terminated and may have a fixed buffer size.
+// Returns the string up to the first null byte.
+func (c *Client) ReadString(ctx context.Context, symbolName string) (string, error) {
+	data, err := c.ReadSymbol(ctx, symbolName)
+	if err != nil {
+		return "", err
+	}
+	// Find null terminator
+	nullIndex := 0
+	for nullIndex < len(data) && data[nullIndex] != 0 {
+		nullIndex++
+	}
+	return string(data[:nullIndex]), nil
+}
+
 // Type-safe write methods for common TwinCAT types
 
 // WriteBool writes a BOOL value to a symbol by name.
@@ -1036,6 +1052,34 @@ func (c *Client) WriteFloat64(ctx context.Context, symbolName string, value floa
 	data := make([]byte, 8)
 	binary.LittleEndian.PutUint64(data, math.Float64bits(value))
 	return c.WriteSymbol(ctx, symbolName, data)
+}
+
+// WriteString writes a STRING value to a symbol by name.
+// TwinCAT strings have a fixed buffer size. The value is null-terminated
+// and padded with zeros to fill the buffer.
+func (c *Client) WriteString(ctx context.Context, symbolName string, value string) error {
+	// First, resolve the symbol to get its size (the string buffer size)
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return err
+	}
+
+	indexGroup, indexOffset, size, err := c.resolveArraySymbol(ctx, symbolName)
+	if err != nil {
+		return fmt.Errorf("write string %q: %w", symbolName, err)
+	}
+
+	// Create buffer with the string's allocated size
+	data := make([]byte, size)
+
+	// Copy string bytes (up to size-1 to leave room for null terminator)
+	maxLen := int(size) - 1
+	if len(value) > maxLen {
+		value = value[:maxLen]
+	}
+	copy(data, []byte(value))
+	// data is already zero-filled, so null terminator is implicit
+
+	return c.Write(ctx, indexGroup, indexOffset, data)
 }
 
 // Struct field access methods (Milestone 4)
