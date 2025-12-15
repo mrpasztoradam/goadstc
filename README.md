@@ -12,6 +12,9 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 
 - Full AMS/TCP and AMS header encoding/decoding
 - Core ADS commands: Read, Write, ReadWrite, ReadState, ReadDeviceInfo
+- **Symbol resolution**: Read/write PLC variables by name
+- **Symbol table caching**: Automatic symbol upload and parsing
+- ADS notifications for real-time variable monitoring
 - Correct binary protocol implementation (little-endian, exact field sizes)
 - Type-safe Go API with functional options
 - Zero external dependencies (standard library only)
@@ -20,9 +23,7 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 ## What This Library Does NOT Support
 
 - UDP transport (TCP only)
-- High-level PLC abstractions beyond ADS protocol
-- Router/routing table management
-- TwinCAT-specific symbol resolution
+- Router/routing table management (direct TCP connection only)
 
 ## Installation
 
@@ -103,12 +104,23 @@ func main() {
 
 ### Core Methods
 
+**Basic Operations:**
 - `ReadDeviceInfo(ctx)` - Read device name and version
 - `Read(ctx, indexGroup, indexOffset, length)` - Read data from device
 - `Write(ctx, indexGroup, indexOffset, data)` - Write data to device
 - `ReadState(ctx)` - Read ADS and device state
 - `WriteControl(ctx, adsState, deviceState, data)` - Change ADS state (start/stop/reset PLC)
 - `ReadWrite(ctx, indexGroup, indexOffset, readLength, writeData)` - Combined read/write operation
+
+**Symbol Resolution (NEW):**
+- `RefreshSymbols(ctx)` - Download and cache symbol table from PLC
+- `GetSymbol(name)` - Get cached symbol information
+- `ListSymbols(ctx)` - List all symbols in cache
+- `FindSymbols(ctx, pattern)` - Search symbols by pattern
+- `ReadSymbol(ctx, name)` - Read PLC variable by name (auto-loads symbols)
+- `WriteSymbol(ctx, name, data)` - Write PLC variable by name
+
+**Notifications:**
 - `Subscribe(ctx, opts)` - Create a notification subscription for real-time PLC data monitoring
 
 ### Notifications
@@ -141,11 +153,40 @@ Supported transmission modes:
 - `TransModeCyclic` - Send notifications at fixed intervals
 - `TransModeOnChange` - Send only when value changes
 - `TransModeCyclicOnChange` - Combination of both
+Symbol-Based Access (Recommended)
 
-See [examples/notifications](examples/notifications/main.go) for a complete example.
+```go
+// Read PLC variable by name (auto-loads symbol table on first use)
+data, err := client.ReadSymbol(ctx, "MAIN.counter")
+if err != nil {
+    log.Fatal(err)
+}
+value := int32(binary.LittleEndian.Uint32(data))
+fmt.Printf("Counter value: %d\n", value)
 
-### Common Index Groups
+// Write PLC variable by name
+newValue := make([]byte, 4)
+binary.LittleEndian.PutUint32(newValue, 42)
+err = client.WriteSymbol(ctx, "MAIN.counter", newValue)
 
+// Search for symbols
+symbols, err := client.FindSymbols(ctx, "MAIN")
+for _, sym := range symbols {
+    fmt.Printf("%s (%s, %d bytes)\n", sym.Name, sym.Type.Name, sym.Size)
+}
+
+// Manually refresh symbol table (if PLC program changes)
+err = client.RefreshSymbols(ctx)
+```
+
+### Common Index Groups (Low-Level Access)
+
+- `0x00004020` - PLC memory (%M)
+- `0x0000F020` - Physical inputs (%I)
+- `0x0000F030` - Physical outputs (%Q)
+- `0xF003` - Get symbol handle by name
+- `0xF00B` - Upload symbol table
+- `0xF00C` - Get symbol upload info
 - `0x00004020` - PLC memory (%M)
 - `0x0000F020` - Physical inputs (%I)
 - `0x0000F030` - Physical outputs (%Q)

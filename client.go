@@ -3,12 +3,14 @@ package goadstc
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/mrpasztoradam/goadstc/internal/ads"
 	"github.com/mrpasztoradam/goadstc/internal/ams"
+	"github.com/mrpasztoradam/goadstc/internal/symbols"
 	"github.com/mrpasztoradam/goadstc/internal/transport"
 )
 
@@ -21,6 +23,8 @@ type Client struct {
 	sourcePort      ams.Port
 	subscriptions   map[uint32]*Subscription
 	subscriptionsMu sync.RWMutex
+	symbolTable     *symbols.Table
+	symbolTableMu   sync.RWMutex
 }
 
 // DeviceInfo represents device information returned by ReadDeviceInfo.
@@ -136,6 +140,7 @@ func New(opts ...Option) (*Client, error) {
 		sourceNetID:   cfg.sourceNetID,
 		sourcePort:    cfg.sourcePort,
 		subscriptions: make(map[uint32]*Subscription),
+		symbolTable:   symbols.NewTable(),
 	}
 
 	// Set up notification handler
@@ -182,6 +187,194 @@ func (c *Client) sendRequest(ctx context.Context, commandID ads.CommandID, reqDa
 	}
 
 	return respPacket, nil
+}
+
+// GetSymbolHandle retrieves a handle for the given symbol name.
+// The handle can be used with Read/Write operations using the handle's IndexGroup/IndexOffset.
+// Handles should be released with ReleaseSymbolHandle when no longer needed.
+func (c *Client) GetSymbolHandle(ctx context.Context, symbolName string) (uint32, error) {
+	// Prepare symbol name as null-terminated string
+	nameBytes := []byte(symbolName)
+	nameBytes = append(nameBytes, 0) // Add null terminator
+
+	// Use ReadWrite command with ADSIGRP_SYM_HNDBYNAME (0xF003)
+	readData, err := c.ReadWrite(ctx, 0xF003, 0, 4, nameBytes)
+	if err != nil {
+		return 0, fmt.Errorf("get symbol handle for %q: %w", symbolName, err)
+	}
+
+	if len(readData) < 4 {
+		return 0, fmt.Errorf("invalid symbol handle response: expected 4 bytes, got %d", len(readData))
+	}
+
+	var resp ads.GetSymbolHandleByNameResponse
+	if err := resp.UnmarshalBinary(readData); err != nil {
+		return 0, fmt.Errorf("parse symbol handle response: %w", err)
+	}
+
+	return resp.Handle, nil
+}
+
+// ReleaseSymbolHandle releases a previously acquired symbol handle.
+func (c *Client) ReleaseSymbolHandle(ctx context.Context, handle uint32) error {
+	// Prepare handle as 4-byte data
+	handleData := make([]byte, 4)
+	binary.LittleEndian.PutUint32(handleData, handle)
+
+	// Use Write command with ADSIGRP_SYM_RELEASEHND (0xF006)
+	if err := c.Write(ctx, 0xF006, 0, handleData); err != nil {
+		return fmt.Errorf("release symbol handle %d: %w", handle, err)
+	}
+
+	return nil
+}
+
+// GetSymbolUploadInfo retrieves information about the PLC symbol table.
+// Returns the number of symbols and total size of symbol data.
+func (c *Client) GetSymbolUploadInfo(ctx context.Context) (symbolCount, symbolLength uint32, err error) {
+	// Use Read command with ADSIGRP_SYM_UPLOADINFO2 (0xF00C)
+	readData, err := c.Read(ctx, 0xF00C, 0, 0x30) // 48 bytes for upload info
+	if err != nil {
+		return 0, 0, fmt.Errorf("get symbol upload info: %w", err)
+	}
+
+	if len(readData) < 8 {
+		return 0, 0, fmt.Errorf("invalid upload info response: expected at least 8 bytes, got %d", len(readData))
+	}
+
+	var resp ads.SymbolUploadInfoResponse
+	if err := resp.UnmarshalBinary(readData); err != nil {
+		return 0, 0, fmt.Errorf("parse symbol upload info: %w", err)
+	}
+
+	return resp.SymbolCount, resp.SymbolLength, nil
+}
+
+// UploadSymbolTable downloads the complete symbol table from the PLC.
+// The returned data is in raw TwinCAT format and needs parsing.
+func (c *Client) UploadSymbolTable(ctx context.Context) ([]byte, error) {
+	// First get the size
+	_, symbolLength, err := c.GetSymbolUploadInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if symbolLength == 0 {
+		return nil, fmt.Errorf("symbol table is empty")
+	}
+
+	// Use Read command with ADSIGRP_SYM_UPLOAD (0xF00B)
+	// Request a large buffer for the symbol table
+	readLength := symbolLength
+	if readLength < 0xFFFFFF {
+		readLength = 0xFFFFFF // Request max to ensure we get everything
+	}
+
+	readData, err := c.Read(ctx, 0xF00B, 0, readLength)
+	if err != nil {
+		return nil, fmt.Errorf("upload symbol table: %w", err)
+	}
+
+	return readData, nil
+}
+
+// RefreshSymbols downloads and parses the symbol table from the PLC.
+// This method should be called before using symbol-based operations.
+// It can be called multiple times to refresh the cache if the PLC program changes.
+func (c *Client) RefreshSymbols(ctx context.Context) error {
+	data, err := c.UploadSymbolTable(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh symbols: %w", err)
+	}
+
+	c.symbolTableMu.Lock()
+	defer c.symbolTableMu.Unlock()
+
+	if err := c.symbolTable.Load(data); err != nil {
+		return fmt.Errorf("load symbols: %w", err)
+	}
+
+	return nil
+}
+
+// ensureSymbolsLoaded automatically loads symbols if not already loaded.
+func (c *Client) ensureSymbolsLoaded(ctx context.Context) error {
+	c.symbolTableMu.RLock()
+	loaded := c.symbolTable.IsLoaded()
+	c.symbolTableMu.RUnlock()
+
+	if !loaded {
+		return c.RefreshSymbols(ctx)
+	}
+	return nil
+}
+
+// GetSymbol retrieves symbol information by name.
+func (c *Client) GetSymbol(name string) (*symbols.Symbol, error) {
+	c.symbolTableMu.RLock()
+	defer c.symbolTableMu.RUnlock()
+
+	return c.symbolTable.Get(name)
+}
+
+// ListSymbols returns all symbols in the cache.
+// Calls RefreshSymbols automatically if symbols not loaded.
+func (c *Client) ListSymbols(ctx context.Context) ([]*symbols.Symbol, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, err
+	}
+
+	c.symbolTableMu.RLock()
+	defer c.symbolTableMu.RUnlock()
+
+	return c.symbolTable.List()
+}
+
+// FindSymbols searches for symbols matching the pattern (case-insensitive substring).
+func (c *Client) FindSymbols(ctx context.Context, pattern string) ([]*symbols.Symbol, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, err
+	}
+
+	c.symbolTableMu.RLock()
+	defer c.symbolTableMu.RUnlock()
+
+	return c.symbolTable.Find(pattern)
+}
+
+// ReadSymbol reads data from a PLC symbol by name.
+// Automatically loads symbol table on first call.
+func (c *Client) ReadSymbol(ctx context.Context, symbolName string) ([]byte, error) {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return nil, err
+	}
+
+	symbol, err := c.GetSymbol(symbolName)
+	if err != nil {
+		return nil, fmt.Errorf("read symbol %q: %w", symbolName, err)
+	}
+
+	return c.Read(ctx, symbol.IndexGroup, symbol.IndexOffset, symbol.Size)
+}
+
+// WriteSymbol writes data to a PLC symbol by name.
+// Automatically loads symbol table on first call.
+func (c *Client) WriteSymbol(ctx context.Context, symbolName string, data []byte) error {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return err
+	}
+
+	symbol, err := c.GetSymbol(symbolName)
+	if err != nil {
+		return fmt.Errorf("write symbol %q: %w", symbolName, err)
+	}
+
+	if uint32(len(data)) != symbol.Size {
+		return fmt.Errorf("write symbol %q: data size mismatch (expected %d bytes, got %d)",
+			symbolName, symbol.Size, len(data))
+	}
+
+	return c.Write(ctx, symbol.IndexGroup, symbol.IndexOffset, data)
 }
 
 // ReadDeviceInfo reads the device name and version.
