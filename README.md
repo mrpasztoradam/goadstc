@@ -107,6 +107,7 @@ func main() {
 - `Read(ctx, indexGroup, indexOffset, length)` - Read data from device
 - `Write(ctx, indexGroup, indexOffset, data)` - Write data to device
 - `ReadState(ctx)` - Read ADS and device state
+- `WriteControl(ctx, adsState, deviceState, data)` - Change ADS state (start/stop/reset PLC)
 - `ReadWrite(ctx, indexGroup, indexOffset, readLength, writeData)` - Combined read/write operation
 - `Subscribe(ctx, opts)` - Create a notification subscription for real-time PLC data monitoring
 

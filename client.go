@@ -289,6 +289,35 @@ func (c *Client) ReadState(ctx context.Context) (*DeviceState, error) {
 	}, nil
 }
 
+// WriteControl changes the ADS state of the device.
+// This can be used to start, stop, reset the PLC, or perform other state transitions.
+// The data parameter is optional and can be nil for most operations.
+func (c *Client) WriteControl(ctx context.Context, adsState ads.ADSState, deviceState uint16, data []byte) error {
+	req := ads.WriteControlRequest{
+		ADSState:    adsState,
+		DeviceState: deviceState,
+		Length:      uint32(len(data)),
+		Data:        data,
+	}
+	reqData, _ := req.MarshalBinary()
+
+	respPacket, err := c.sendRequest(ctx, ads.CmdWriteControl, reqData)
+	if err != nil {
+		return err
+	}
+
+	var resp ads.WriteControlResponse
+	if err := resp.UnmarshalBinary(respPacket.Data); err != nil {
+		return err
+	}
+
+	if resp.Result != 0 {
+		return ads.Error(resp.Result)
+	}
+
+	return nil
+}
+
 // ReadWrite writes and reads data in a single operation.
 func (c *Client) ReadWrite(ctx context.Context, indexGroup, indexOffset, readLength uint32, writeData []byte) ([]byte, error) {
 	req := ads.ReadWriteRequest{
