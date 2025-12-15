@@ -31,6 +31,20 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 go get github.com/mrpasztoradam/goadstc
 ```
 
+## Project Structure
+
+```
+/
+├── client.go              # Public API
+├── internal/
+│   ├── ams/              # AMS protocol implementation
+│   ├── ads/              # ADS command handling
+│   └── transport/        # TCP transport layer
+├── tests/                # Test suite (gitignored)
+├── examples/             # Usage examples
+└── testdata/             # Test fixtures
+```
+
 ## Quick Start
 
 ```go
@@ -76,6 +90,57 @@ func main() {
     fmt.Printf("Read data: %v\n", data)
 }
 ```
+
+## API Overview
+
+### Client Configuration Options
+
+- `WithTarget(address)` - Target TCP address (required)
+- `WithAMSNetID(netID)` - Target AMS NetID (required)
+- `WithAMSPort(port)` - Target AMS port (default: 851)
+- `WithSourceNetID(netID)` - Source AMS NetID (optional)
+- `WithSourcePort(port)` - Source AMS port (default: 32905)
+- `WithTimeout(duration)` - Request timeout (default: 5s)
+
+### Core Methods
+
+- `ReadDeviceInfo(ctx)` - Read device name and version
+- `Read(ctx, indexGroup, indexOffset, length)` - Read data from device
+- `Write(ctx, indexGroup, indexOffset, data)` - Write data to device
+- `ReadState(ctx)` - Read ADS and device state
+- `ReadWrite(ctx, indexGroup, indexOffset, readLength, writeData)` - Combined read/write operation
+
+### Common Index Groups
+
+- `0x00004020` - PLC memory (%M)
+- `0x0000F020` - Physical inputs (%I)
+- `0x0000F030` - Physical outputs (%Q)
+
+## Development
+
+### Running Tests
+
+Tests are located in the `tests/` directory (gitignored by default):
+
+```bash
+go test ./tests/...
+```
+
+### Building
+
+```bash
+go build ./...
+```
+
+## Protocol Implementation
+
+This library implements the TwinCAT ADS/AMS protocol according to the official Beckhoff specification:
+
+- **AMS/TCP Header**: 6 bytes (reserved + length)
+- **AMS Header**: 32 bytes (routing and control information)
+- **ADS Data**: Variable length payload
+- **Byte Order**: Little-endian for all multi-byte fields
+- **Transport**: TCP only (UDP not supported)
 
 ## License
 
