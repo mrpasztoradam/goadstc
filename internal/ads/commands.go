@@ -33,6 +33,15 @@ const (
 	IndexGroupSumCommandReadWrite uint32 = 0x0000F082
 )
 
+// TransmissionMode defines how notifications are transmitted.
+type TransmissionMode uint32
+
+const (
+	TransModeCyclic         TransmissionMode = 3 // Cyclic transmission
+	TransModeOnChange       TransmissionMode = 4 // On change transmission
+	TransModeCyclicOnChange TransmissionMode = 5 // Cyclic and on change
+)
+
 type ADSState uint16
 
 const (
@@ -234,5 +243,140 @@ func (w *WriteControlResponse) UnmarshalBinary(data []byte) error {
 		return fmt.Errorf("ads: write control response requires 4 bytes")
 	}
 	w.Result = binary.LittleEndian.Uint32(data[0:4])
+	return nil
+}
+
+// AddDeviceNotificationRequest represents an ADS AddDeviceNotification request.
+type AddDeviceNotificationRequest struct {
+	IndexGroup       uint32
+	IndexOffset      uint32
+	Length           uint32
+	TransmissionMode TransmissionMode
+	MaxDelay         uint32 // in milliseconds
+	CycleTime        uint32 // in milliseconds
+}
+
+func (a *AddDeviceNotificationRequest) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 40)
+	binary.LittleEndian.PutUint32(buf[0:4], a.IndexGroup)
+	binary.LittleEndian.PutUint32(buf[4:8], a.IndexOffset)
+	binary.LittleEndian.PutUint32(buf[8:12], a.Length)
+	binary.LittleEndian.PutUint32(buf[12:16], uint32(a.TransmissionMode))
+	binary.LittleEndian.PutUint32(buf[16:20], a.MaxDelay)
+	binary.LittleEndian.PutUint32(buf[20:24], a.CycleTime)
+	// Reserved: 16 bytes (24-39) - already zero
+	return buf, nil
+}
+
+// AddDeviceNotificationResponse represents an ADS AddDeviceNotification response.
+type AddDeviceNotificationResponse struct {
+	Result             uint32
+	NotificationHandle uint32
+}
+
+func (a *AddDeviceNotificationResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 8 {
+		return fmt.Errorf("ads: add notification response requires 8 bytes")
+	}
+	a.Result = binary.LittleEndian.Uint32(data[0:4])
+	a.NotificationHandle = binary.LittleEndian.Uint32(data[4:8])
+	return nil
+}
+
+// DeleteDeviceNotificationRequest represents an ADS DeleteDeviceNotification request.
+type DeleteDeviceNotificationRequest struct {
+	NotificationHandle uint32
+}
+
+func (d *DeleteDeviceNotificationRequest) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf[0:4], d.NotificationHandle)
+	return buf, nil
+}
+
+// DeleteDeviceNotificationResponse represents an ADS DeleteDeviceNotification response.
+type DeleteDeviceNotificationResponse struct {
+	Result uint32
+}
+
+func (d *DeleteDeviceNotificationResponse) UnmarshalBinary(data []byte) error {
+	if len(data) < 4 {
+		return fmt.Errorf("ads: delete notification response requires 4 bytes")
+	}
+	d.Result = binary.LittleEndian.Uint32(data[0:4])
+	return nil
+}
+
+// NotificationSample represents a single notification sample.
+type NotificationSample struct {
+	NotificationHandle uint32
+	Data               []byte
+}
+
+// StampHeader represents a timestamp header with multiple samples.
+type StampHeader struct {
+	Timestamp uint64 // Windows FILETIME (100ns since 1601-01-01)
+	Samples   []NotificationSample
+}
+
+// DeviceNotificationRequest represents an ADS DeviceNotification (server push).
+type DeviceNotificationRequest struct {
+	StampHeaders []StampHeader
+}
+
+func (d *DeviceNotificationRequest) UnmarshalBinary(data []byte) error {
+	if len(data) < 8 {
+		return fmt.Errorf("ads: device notification requires at least 8 bytes")
+	}
+
+	length := binary.LittleEndian.Uint32(data[0:4])
+	stamps := binary.LittleEndian.Uint32(data[4:8])
+
+	if uint32(len(data)) < 8+length {
+		return fmt.Errorf("ads: insufficient data for device notification")
+	}
+
+	d.StampHeaders = make([]StampHeader, 0, stamps)
+	offset := 8
+
+	for i := uint32(0); i < stamps; i++ {
+		if offset+12 > len(data) {
+			return fmt.Errorf("ads: insufficient data for stamp header")
+		}
+
+		timestamp := binary.LittleEndian.Uint64(data[offset : offset+8])
+		sampleCount := binary.LittleEndian.Uint32(data[offset+8 : offset+12])
+		offset += 12
+
+		samples := make([]NotificationSample, 0, sampleCount)
+		for j := uint32(0); j < sampleCount; j++ {
+			if offset+8 > len(data) {
+				return fmt.Errorf("ads: insufficient data for notification sample")
+			}
+
+			handle := binary.LittleEndian.Uint32(data[offset : offset+4])
+			sampleSize := binary.LittleEndian.Uint32(data[offset+4 : offset+8])
+			offset += 8
+
+			if offset+int(sampleSize) > len(data) {
+				return fmt.Errorf("ads: insufficient data for sample data")
+			}
+
+			sampleData := make([]byte, sampleSize)
+			copy(sampleData, data[offset:offset+int(sampleSize)])
+			offset += int(sampleSize)
+
+			samples = append(samples, NotificationSample{
+				NotificationHandle: handle,
+				Data:               sampleData,
+			})
+		}
+
+		d.StampHeaders = append(d.StampHeaders, StampHeader{
+			Timestamp: timestamp,
+			Samples:   samples,
+		})
+	}
+
 	return nil
 }
