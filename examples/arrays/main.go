@@ -33,7 +33,7 @@ func main() {
 		log.Fatalf("❌ Failed to create client: %v", err)
 	}
 	defer client.Close()
-	fmt.Println("✅ Connected successfully\n")
+	fmt.Println("✅ Connected successfully")
 
 	ctx := context.Background()
 

@@ -52,7 +52,7 @@ func main() {
 		log.Fatalf("❌ Failed to create client: %v", err)
 	}
 	defer client.Close()
-	fmt.Println("✅ Connected successfully\n")
+	fmt.Println("✅ Connected successfully")
 
 	ctx := context.Background()
 
@@ -66,7 +66,7 @@ func main() {
 	}
 	fmt.Printf("  Symbol Count: %d\n", symbolCount)
 	fmt.Printf("  Symbol Data Size: %d bytes\n", symbolLength)
-	fmt.Println("✅ Test 1 passed\n")
+	fmt.Println("✅ Test 1 passed")
 
 	// Test 2: Refresh symbols (Milestone 2)
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -91,7 +91,7 @@ func main() {
 		}
 		fmt.Printf("    - %s (%s, %d bytes)\n", sym.Name, sym.Type.Name, sym.Size)
 	}
-	fmt.Println("✅ Test 2 passed\n")
+	fmt.Println("✅ Test 2 passed")
 
 	// Test 3: Get symbol handle
 	fmt.Println("═══════════════════════════════════════════════════════════")
