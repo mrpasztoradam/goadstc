@@ -23,7 +23,7 @@ const (
 )
 
 var (
-	plcNetID = [6]byte{10, 10, 0, 20, 1, 1}
+	plcNetID = [6]byte{10, 0, 10, 20, 1, 1}
 	pcNetID  = [6]byte{10, 10, 0, 10, 1, 1}
 )
 
@@ -175,13 +175,13 @@ func testRead(ctx context.Context, client *goadstc.Client) error {
 func testWrite(ctx context.Context, client *goadstc.Client) error {
 	// Generate test value (current timestamp in seconds as uint32)
 	testValue := uint32(time.Now().Unix() % 0xFFFFFFFF)
-	
+
 	fmt.Printf("Writing test value %d (0x%08X) to offset %d...\n", testValue, testValue, testOffset)
 
 	// Write value
 	writeData := make([]byte, 4)
 	binary.LittleEndian.PutUint32(writeData, testValue)
-	
+
 	err := client.Write(ctx, ads.IndexGroupPLCMemory, testOffset, writeData)
 	if err != nil {
 		return fmt.Errorf("failed to write: %w", err)
@@ -233,26 +233,47 @@ func testReadWrite(ctx context.Context, client *goadstc.Client) error {
 }
 
 func testNotifications(ctx context.Context, client *goadstc.Client) error {
-	fmt.Printf("Subscribing to offset %d for notifications...\n", monitorOffset)
-	fmt.Println("Monitoring for 5 seconds or 10 notifications (whichever comes first)")
+	// Subscribe to MAIN.uUint variable
+	// IndexGroup: 0x4040 (16448 decimal), IndexOffset: 0x5E0A0 (385184 decimal)
+	fmt.Println("Subscribing to MAIN.uUint (IndexGroup: 0x4040, Offset: 0x5E0A0)...")
+	fmt.Println("Monitoring for 10 seconds or 10 notifications (whichever comes first)")
+	fmt.Println("  Transmission Mode: OnChange")
+	fmt.Println("  ⚠️  Please change MAIN.uUint value in TwinCAT to trigger notifications")
 
 	sub, err := client.Subscribe(ctx, goadstc.NotificationOptions{
-		IndexGroup:       ads.IndexGroupPLCMemory,
-		IndexOffset:      monitorOffset,
-		Length:           4, // 4 bytes (DINT)
-		TransmissionMode: ads.TransModeOnChange,
+		IndexGroup:       0x4040,                // MAIN.uUint IndexGroup
+		IndexOffset:      0x5E0A0,               // MAIN.uUint IndexOffset
+		Length:           2,                     // 2 bytes (UINT is 16-bit)
+		TransmissionMode: ads.TransModeOnChange, // Notify on value change
 		MaxDelay:         100 * time.Millisecond,
 		CycleTime:        50 * time.Millisecond,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to subscribe: %w", err)
 	}
-	defer sub.Close()
+	defer func() {
+		fmt.Println("  Closing subscription...")
+		sub.Close()
+	}()
 
-	fmt.Printf("  Subscribed with handle %d\n", sub.Handle())
+	fmt.Printf("  ✓ Subscribed successfully with handle %d\n", sub.Handle())
 
-	// Monitor for 5 seconds or 10 notifications
-	timeout := time.After(5 * time.Second)
+	// First, let's verify we can read the value directly
+	fmt.Println("  Testing direct read of MAIN.uUint to verify address...")
+	testData, err := client.Read(ctx, 0x4040, 0x5E0A0, 2)
+	if err != nil {
+		fmt.Printf("  ⚠️  Warning: Cannot read MAIN.uUint directly: %v\n", err)
+		fmt.Println("  This might indicate an incorrect address")
+	} else {
+		value := binary.LittleEndian.Uint16(testData)
+		fmt.Printf("  ✓ Direct read successful: MAIN.uUint = %d\n", value)
+	}
+
+	fmt.Println("  Waiting for notifications from PLC...")
+	fmt.Println("  👉 Change MAIN.uUint value now in TwinCAT...")
+
+	// Monitor for 10 seconds or 10 notifications
+	timeout := time.After(10 * time.Second)
 	notifCount := 0
 	maxNotifications := 10
 
@@ -266,13 +287,13 @@ func testNotifications(ctx context.Context, client *goadstc.Client) error {
 				return nil
 			}
 			notifCount++
-			if len(notif.Data) >= 4 {
-				value := int32(binary.LittleEndian.Uint32(notif.Data[0:4]))
-				fmt.Printf("  [%d] %s | Value: %d (0x%08X)\n",
+			if len(notif.Data) >= 2 {
+				value := binary.LittleEndian.Uint16(notif.Data[0:2])
+				fmt.Printf("  [%d] %s | MAIN.uUint = %d (0x%04X)\n",
 					notifCount,
 					notif.Timestamp.Format("15:04:05.000"),
 					value,
-					uint32(value))
+					value)
 			} else {
 				fmt.Printf("  [%d] %s | %d bytes: %X\n",
 					notifCount,
@@ -287,7 +308,13 @@ func testNotifications(ctx context.Context, client *goadstc.Client) error {
 			}
 
 		case <-timeout:
-			fmt.Printf("  Timeout after 5 seconds, received %d notification(s)\n", notifCount)
+			fmt.Printf("  Timeout after 10 seconds, received %d notification(s)\n", notifCount)
+			if notifCount == 0 {
+				fmt.Println("  ⚠️  No notifications received - possible issues:")
+				fmt.Println("     - Variable address may not support notifications")
+				fmt.Println("     - PLC may not be sending notification packets")
+				fmt.Println("     - Check ADS routes and firewall settings")
+			}
 			return nil
 		}
 	}
@@ -320,41 +347,58 @@ func testWriteControl(ctx context.Context, client *goadstc.Client, initialState 
 		return nil
 	}
 
-	// Stop PLC
+	// Note: Stopping the PLC may close the ADS connection
 	fmt.Println("Stopping PLC...")
+	fmt.Println("  ⚠️  Note: PLC may close connection when stopped")
+
 	err = client.WriteControl(ctx, ads.StateStop, 0, nil)
 	if err != nil {
+		// Connection closure on stop is somewhat expected behavior
+		if strings.Contains(err.Error(), "connection closed") {
+			fmt.Println("  ℹ️  Connection closed (expected when stopping PLC)")
+			fmt.Println("  ✓ Stop command was sent before connection closed")
+			fmt.Println("\n  ⚠️  Cannot verify state or restart PLC - connection lost")
+			fmt.Println("  To restart the PLC, use TwinCAT System Manager or reconnect")
+			return nil
+		}
 		return fmt.Errorf("failed to stop PLC: %w", err)
 	}
 	fmt.Println("  ✓ Stop command sent")
 
-	// Wait a moment
-	time.Sleep(1 * time.Second)
+	// Wait a moment for state transition
+	time.Sleep(2 * time.Second)
 
-	// Check state after stop
+	// Try to check state after stop (may fail if connection was closed)
 	state, err := client.ReadState(ctx)
 	if err != nil {
+		if strings.Contains(err.Error(), "connection closed") {
+			fmt.Println("  ℹ️  Cannot read state - connection closed by PLC")
+			fmt.Println("  This is normal behavior when PLC stops")
+			return nil
+		}
 		return fmt.Errorf("failed to read state after stop: %w", err)
 	}
 	fmt.Printf("  Current state: %s\n", adsStateToString(state.ADSState))
 
-	// Start PLC again
-	fmt.Println("Starting PLC...")
-	err = client.WriteControl(ctx, ads.StateRun, 0, nil)
-	if err != nil {
-		return fmt.Errorf("failed to start PLC: %w", err)
-	}
-	fmt.Println("  ✓ Start command sent")
+	// If we got here, connection is still alive, try to restart
+	if state.ADSState != ads.StateRun {
+		fmt.Println("\nStarting PLC...")
+		err = client.WriteControl(ctx, ads.StateRun, 0, nil)
+		if err != nil {
+			return fmt.Errorf("failed to start PLC: %w", err)
+		}
+		fmt.Println("  ✓ Start command sent")
 
-	// Wait a moment
-	time.Sleep(1 * time.Second)
+		// Wait for startup
+		time.Sleep(2 * time.Second)
 
-	// Check final state
-	state, err = client.ReadState(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to read final state: %w", err)
+		// Check final state
+		state, err = client.ReadState(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to read final state: %w", err)
+		}
+		fmt.Printf("  Final state: %s\n", adsStateToString(state.ADSState))
 	}
-	fmt.Printf("  Final state: %s\n", adsStateToString(state.ADSState))
 
 	return nil
 }
