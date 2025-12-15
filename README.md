@@ -11,6 +11,7 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 ## Features
 
 ### Core Protocol
+
 - ✅ Full AMS/TCP and AMS header encoding/decoding
 - ✅ Core ADS commands: Read, Write, ReadWrite, ReadState, ReadDeviceInfo, WriteControl
 - ✅ Symbol resolution: Read/write PLC variables by name
@@ -22,6 +23,7 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 - ✅ Production-ready error handling
 
 ### Advanced Features
+
 - ✅ **34 Type-Safe Methods**: Read/write all TwinCAT data types with native Go types
 - ✅ **Automatic Type Discovery**: Fetch struct definitions directly from PLC
 - ✅ **Struct Field Access**: Direct access to struct fields using dot notation
@@ -169,28 +171,34 @@ func main() {
 All methods automatically resolve symbols and handle type conversions:
 
 **Boolean:**
+
 - `ReadBool(ctx, symbolName) (bool, error)`
 - `WriteBool(ctx, symbolName, value bool) error`
 
 **Integers (Signed):**
+
 - `ReadInt8/ReadInt16/ReadInt32/ReadInt64(ctx, symbolName)`
 - `WriteInt8/WriteInt16/WriteInt32/WriteInt64(ctx, symbolName, value)`
 
 **Integers (Unsigned):**
+
 - `ReadUint8/ReadUint16/ReadUint32/ReadUint64(ctx, symbolName)`
 - `WriteUint8/WriteUint16/WriteUint32/WriteUint64(ctx, symbolName, value)`
 
 **Floating Point:**
+
 - `ReadFloat32/ReadFloat64(ctx, symbolName)`
 - `WriteFloat32/WriteFloat64(ctx, symbolName, value)`
 
 **Strings:**
+
 - `ReadString(ctx, symbolName) (string, error)` - ASCII strings
 - `WriteString(ctx, symbolName, value string) error`
 - `ReadWString(ctx, symbolName) (string, error)` - Unicode (UTF-16LE)
 - `WriteWString(ctx, symbolName, value string) error`
 
 **Time/Date Types:**
+
 - `ReadTime(ctx, symbolName) (time.Duration, error)` - TIME (milliseconds)
 - `WriteTime(ctx, symbolName, value time.Duration) error`
 - `ReadDate(ctx, symbolName) (time.Time, error)` - DATE (Unix timestamp)
@@ -203,6 +211,7 @@ All methods automatically resolve symbols and handle type conversions:
 ### Advanced Symbol Access
 
 **Struct Field Access** (dot notation):
+
 ```go
 // Direct field access
 value, err := client.ReadInt32(ctx, "MAIN.myStruct.field1")
@@ -210,6 +219,7 @@ err = client.WriteFloat32(ctx, "MAIN.sensor.temperature", 25.5)
 ```
 
 **Array Element Access** (bracket notation):
+
 ```go
 // Array indexing
 value, err := client.ReadUint16(ctx, "MAIN.dataArray[5]")
@@ -217,6 +227,7 @@ err = client.WriteInt32(ctx, "MAIN.buffer[10]", 42)
 ```
 
 **Combined Access** (arrays of structs):
+
 ```go
 // Access struct field in array element
 value, err := client.ReadFloat32(ctx, "MAIN.sensors[2].temperature")
@@ -224,6 +235,7 @@ err = client.WriteUint16(ctx, "MAIN.devices[0].status", 1)
 ```
 
 **Automatic Struct Parsing:**
+
 ```go
 // Automatically fetch type info from PLC and parse all fields
 structData, err := client.ReadStructAsMap(ctx, "MAIN.myStruct")
@@ -365,39 +377,39 @@ err = client.WriteControl(ctx, ads.StateRun, 0, nil) // Start PLC
 
 ## Data Type Mapping
 
-| TwinCAT Type | Go Type | Size | Read Method | Write Method |
-|--------------|---------|------|-------------|--------------|
-| BOOL | `bool` | 1 byte | `ReadBool` | `WriteBool` |
-| BYTE, USINT, UINT8 | `uint8` | 1 byte | `ReadUint8` | `WriteUint8` |
-| SINT, INT8 | `int8` | 1 byte | `ReadInt8` | `WriteInt8` |
-| WORD, UINT, UINT16 | `uint16` | 2 bytes | `ReadUint16` | `WriteUint16` |
-| INT, INT16 | `int16` | 2 bytes | `ReadInt16` | `WriteInt16` |
-| DWORD, UDINT, UINT32 | `uint32` | 4 bytes | `ReadUint32` | `WriteUint32` |
-| DINT, INT32 | `int32` | 4 bytes | `ReadInt32` | `WriteInt32` |
-| LWORD, ULINT, UINT64 | `uint64` | 8 bytes | `ReadUint64` | `WriteUint64` |
-| LINT, INT64 | `int64` | 8 bytes | `ReadInt64` | `WriteInt64` |
-| REAL, FLOAT | `float32` | 4 bytes | `ReadFloat32` | `WriteFloat32` |
-| LREAL, DOUBLE | `float64` | 8 bytes | `ReadFloat64` | `WriteFloat64` |
-| STRING | `string` | Variable | `ReadString` | `WriteString` |
-| WSTRING | `string` | Variable | `ReadWString` | `WriteWString` |
-| TIME | `time.Duration` | 4 bytes | `ReadTime` | `WriteTime` |
-| DATE | `time.Time` | 4 bytes | `ReadDate` | `WriteDate` |
-| TIME_OF_DAY, TOD | `time.Duration` | 4 bytes | `ReadTimeOfDay` | `WriteTimeOfDay` |
-| DATE_AND_TIME, DT | `time.Time` | 4 bytes | `ReadDateAndTime` | `WriteDateAndTime` |
+| TwinCAT Type         | Go Type         | Size     | Read Method       | Write Method       |
+| -------------------- | --------------- | -------- | ----------------- | ------------------ |
+| BOOL                 | `bool`          | 1 byte   | `ReadBool`        | `WriteBool`        |
+| BYTE, USINT, UINT8   | `uint8`         | 1 byte   | `ReadUint8`       | `WriteUint8`       |
+| SINT, INT8           | `int8`          | 1 byte   | `ReadInt8`        | `WriteInt8`        |
+| WORD, UINT, UINT16   | `uint16`        | 2 bytes  | `ReadUint16`      | `WriteUint16`      |
+| INT, INT16           | `int16`         | 2 bytes  | `ReadInt16`       | `WriteInt16`       |
+| DWORD, UDINT, UINT32 | `uint32`        | 4 bytes  | `ReadUint32`      | `WriteUint32`      |
+| DINT, INT32          | `int32`         | 4 bytes  | `ReadInt32`       | `WriteInt32`       |
+| LWORD, ULINT, UINT64 | `uint64`        | 8 bytes  | `ReadUint64`      | `WriteUint64`      |
+| LINT, INT64          | `int64`         | 8 bytes  | `ReadInt64`       | `WriteInt64`       |
+| REAL, FLOAT          | `float32`       | 4 bytes  | `ReadFloat32`     | `WriteFloat32`     |
+| LREAL, DOUBLE        | `float64`       | 8 bytes  | `ReadFloat64`     | `WriteFloat64`     |
+| STRING               | `string`        | Variable | `ReadString`      | `WriteString`      |
+| WSTRING              | `string`        | Variable | `ReadWString`     | `WriteWString`     |
+| TIME                 | `time.Duration` | 4 bytes  | `ReadTime`        | `WriteTime`        |
+| DATE                 | `time.Time`     | 4 bytes  | `ReadDate`        | `WriteDate`        |
+| TIME_OF_DAY, TOD     | `time.Duration` | 4 bytes  | `ReadTimeOfDay`   | `WriteTimeOfDay`   |
+| DATE_AND_TIME, DT    | `time.Time`     | 4 bytes  | `ReadDateAndTime` | `WriteDateAndTime` |
 
 ### Common Index Groups (Low-Level Access)
 
-| Index Group | Description |
-|-------------|-------------|
-| `0x00004020` | PLC memory (%M) |
-| `0x0000F020` | Physical inputs (%I) |
-| `0x0000F030` | Physical outputs (%Q) |
-| `0xF003` | Get symbol handle by name |
-| `0xF006` | Release symbol handle |
-| `0xF00B` | Upload symbol table |
-| `0xF00C` | Get symbol upload info |
-| `0xF010` | Get data type upload info |
-| `0xF011` | Upload data type info |
+| Index Group  | Description               |
+| ------------ | ------------------------- |
+| `0x00004020` | PLC memory (%M)           |
+| `0x0000F020` | Physical inputs (%I)      |
+| `0x0000F030` | Physical outputs (%Q)     |
+| `0xF003`     | Get symbol handle by name |
+| `0xF006`     | Release symbol handle     |
+| `0xF00B`     | Upload symbol table       |
+| `0xF00C`     | Get symbol upload info    |
+| `0xF010`     | Get data type upload info |
+| `0xF011`     | Upload data type info     |
 
 ## Examples
 
@@ -475,6 +487,7 @@ This library implements the TwinCAT ADS/AMS protocol according to the official B
 ## Contributing
 
 Contributions are welcome! Please ensure:
+
 - Code follows Go conventions
 - All examples compile and run
 - Documentation is updated for new features
