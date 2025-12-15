@@ -55,7 +55,8 @@ func main() {
 	defer sub.Close()
 	
 	fmt.Printf("✅ Subscribed successfully (handle: %d)\n", sub.Handle())
-	fmt.Println("   Waiting for notifications... (try changing the value in TwinCAT)")
+	fmt.Println("   Monitoring for value changes...")
+	fmt.Println("   (Writing values 1000-1004 to trigger notifications)")
 	fmt.Println()
 
 	// Monitor notifications
@@ -71,20 +72,33 @@ func main() {
 					notifCount, value, notif.Timestamp.Format("15:04:05.000"))
 			}
 			
-			if notifCount >= 3 {
-				fmt.Println("\n   (Received 3 notifications, stopping...)")
+			if notifCount >= 5 {
+				fmt.Println("\n   (Received 5 notifications, stopping...)")
 				done <- true
 				return
 			}
 		}
 	}()
 
+	// Write values to trigger notifications
+	fmt.Println("   Writing values to trigger notifications...")
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		for i := uint16(1000); i <= 1004; i++ {
+			client.WriteUint16(ctx, "MAIN.uUint", i)
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
+
 	// Wait for notifications or timeout
 	select {
 	case <-done:
-		// Got 3 notifications
+		// Got 5 notifications
 	case <-time.After(10 * time.Second):
-		fmt.Println("\n   (Timeout after 10 seconds, no value changes detected)")
+		fmt.Println("\n   (Timeout after 10 seconds)")
+		if notifCount == 0 {
+			fmt.Println("   ❌ No notifications received - this might indicate a problem")
+		}
 	}
 
 	fmt.Println("\n✅ Test 1 complete")
