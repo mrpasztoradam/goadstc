@@ -1003,6 +1003,136 @@ func (c *Client) ListRegisteredTypes() []string {
 	return c.typeRegistry.List()
 }
 
+// fetchTypeInfoFromPLC retrieves type information from the PLC using ADSIGRP_SYM_DT_UPLOAD (0xF011).
+func (c *Client) fetchTypeInfoFromPLC(ctx context.Context, typeName string) (symbols.TypeInfo, error) {
+	// Use ReadWrite command with ADSIGRP_SYM_DT_UPLOAD (0xF011)
+	typeNameBytes := []byte(typeName)
+	typeNameBytes = append(typeNameBytes, 0) // Null terminator
+
+	readData, err := c.ReadWrite(ctx, 0xF011, 0, 0xFFFF, typeNameBytes)
+	if err != nil {
+		return symbols.TypeInfo{}, fmt.Errorf("read type info from PLC: %w", err)
+	}
+
+	if len(readData) < 42 {
+		return symbols.TypeInfo{}, fmt.Errorf("response too short for type info: %d bytes", len(readData))
+	}
+
+	// Parse data type entry structure according to ADS specification:
+	// Offset 0: entryLength (4 bytes)
+	// Offset 16: size (4 bytes)
+	// Offset 20: offs (4 bytes)
+	// Offset 24: dataType (4 bytes)
+	// Offset 32: nameLength (2 bytes)
+	// Offset 34: typeLength (2 bytes)
+	// Offset 36: commentLength (2 bytes)
+	// Offset 40: subItems (2 bytes) <- number of fields
+
+	typeSize := binary.LittleEndian.Uint32(readData[16:20])
+	dataTypeID := binary.LittleEndian.Uint32(readData[24:28])
+	nameLength := binary.LittleEndian.Uint16(readData[32:34])
+	typeLength := binary.LittleEndian.Uint16(readData[34:36])
+	commentLength := binary.LittleEndian.Uint16(readData[36:38])
+	subItems := binary.LittleEndian.Uint16(readData[40:42])
+
+	typeInfo := symbols.TypeInfo{
+		Name:     typeName,
+		BaseType: symbols.DataType(dataTypeID),
+		Size:     typeSize,
+		IsStruct: subItems > 0,
+		Fields:   make([]symbols.FieldInfo, 0, subItems),
+	}
+
+	if subItems == 0 {
+		return typeInfo, nil // No fields (primitive type)
+	}
+
+	// Calculate offset to sub-items
+	offset := 42 + int(nameLength) + 1 + int(typeLength) + 1 + int(commentLength) + 1
+
+	// Parse each sub-item (field)
+	for i := 0; i < int(subItems) && offset+42 <= len(readData); i++ {
+		fieldSize := binary.LittleEndian.Uint32(readData[offset+16 : offset+20])
+		fieldOffset := binary.LittleEndian.Uint32(readData[offset+20 : offset+24])
+		fieldDataType := binary.LittleEndian.Uint32(readData[offset+24 : offset+28])
+		fieldNameLen := binary.LittleEndian.Uint16(readData[offset+32 : offset+34])
+		fieldTypeLen := binary.LittleEndian.Uint16(readData[offset+34 : offset+36])
+
+		// Extract field name
+		fieldNameStart := offset + 42
+		fieldNameEnd := fieldNameStart + int(fieldNameLen)
+		if fieldNameEnd > len(readData) {
+			break
+		}
+		fieldName := string(readData[fieldNameStart:fieldNameEnd])
+		// Remove null terminator
+		for idx := 0; idx < len(fieldName); idx++ {
+			if fieldName[idx] == 0 {
+				fieldName = fieldName[:idx]
+				break
+			}
+		}
+
+		// Extract field type name
+		fieldTypeStart := fieldNameEnd + 1
+		fieldTypeEnd := fieldTypeStart + int(fieldTypeLen)
+		if fieldTypeEnd > len(readData) {
+			break
+		}
+		fieldTypeName := string(readData[fieldTypeStart:fieldTypeEnd])
+		// Remove null terminator
+		for idx := 0; idx < len(fieldTypeName); idx++ {
+			if fieldTypeName[idx] == 0 {
+				fieldTypeName = fieldTypeName[:idx]
+				break
+			}
+		}
+
+		// Create field info
+		fieldInfo := symbols.FieldInfo{
+			Name:   fieldName,
+			Offset: fieldOffset,
+			Type: symbols.TypeInfo{
+				Name:     fieldTypeName,
+				BaseType: symbols.DataType(fieldDataType),
+				Size:     fieldSize,
+			},
+		}
+
+		// Check if field is a nested struct - recursively fetch its type info
+		if fieldDataType == 65 || !isSimpleDataType(symbols.DataType(fieldDataType)) {
+			fieldInfo.Type.IsStruct = true
+			// Recursively fetch nested struct type info
+			if nestedTypeInfo, err := c.fetchTypeInfoFromPLC(ctx, fieldTypeName); err == nil {
+				fieldInfo.Type = nestedTypeInfo
+			}
+		}
+
+		typeInfo.Fields = append(typeInfo.Fields, fieldInfo)
+
+		// Move to next sub-item
+		entryLength := binary.LittleEndian.Uint32(readData[offset : offset+4])
+		offset += int(entryLength)
+	}
+
+	return typeInfo, nil
+}
+
+// isSimpleDataType checks if a data type is a simple (non-struct) type.
+func isSimpleDataType(dt symbols.DataType) bool {
+	switch dt {
+	case symbols.DataTypeInt8, symbols.DataTypeUInt8,
+		symbols.DataTypeInt16, symbols.DataTypeUInt16,
+		symbols.DataTypeInt32, symbols.DataTypeUInt32,
+		symbols.DataTypeInt64, symbols.DataTypeUInt64,
+		symbols.DataTypeReal32, symbols.DataTypeReal64,
+		symbols.DataTypeBool, symbols.DataTypeString:
+		return true
+	default:
+		return false
+	}
+}
+
 // ReadStructAsMap reads a struct symbol and returns its fields as a map.
 // The map keys are field names and values are interface{} containing the parsed values.
 // If the struct type is registered via RegisterType, it will use that information for parsing.
@@ -1033,12 +1163,24 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 	// Check if type is registered in the type registry
 	var typeInfo symbols.TypeInfo
 	var hasTypeInfo bool
-	
+
 	c.typeRegistryMu.RLock()
 	typeInfo, hasTypeInfo = c.typeRegistry.Get(symbol.Type.Name)
 	c.typeRegistryMu.RUnlock()
 
-	// Use registered type info if available, otherwise use symbol table info
+	// If not registered, try to fetch from PLC and cache it
+	if !hasTypeInfo || len(typeInfo.Fields) == 0 {
+		if fetchedTypeInfo, err := c.fetchTypeInfoFromPLC(ctx, symbol.Type.Name); err == nil {
+			typeInfo = fetchedTypeInfo
+			hasTypeInfo = true
+			// Cache it for future use
+			c.typeRegistryMu.Lock()
+			c.typeRegistry.Register(symbol.Type.Name, typeInfo)
+			c.typeRegistryMu.Unlock()
+		}
+	}
+
+	// Use type info if available
 	if hasTypeInfo && len(typeInfo.Fields) > 0 {
 		for _, field := range typeInfo.Fields {
 			if int(field.Offset)+int(field.Type.Size) > len(structData) {
@@ -1050,7 +1192,7 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 		return result, nil
 	}
 
-	// Fall back to symbol table field information
+	// Fall back to symbol table field information (rarely has detail)
 	if len(symbol.Type.Fields) > 0 {
 		for _, field := range symbol.Type.Fields {
 			if int(field.Offset)+int(field.Type.Size) > len(structData) {
@@ -1060,11 +1202,11 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 			result[field.Name] = parseFieldValue(fieldData, field.Type)
 		}
 	} else {
-		// No detailed field info - return raw data
+		// No detailed field info available
 		result["_raw"] = structData
 		result["_size"] = len(structData)
 		result["_type"] = symbol.Type.Name
-		result["_note"] = "Detailed field information not available. Use RegisterType() to define struct layout."
+		result["_note"] = "Type information not available from PLC. Data type upload may not be supported by this TwinCAT version."
 	}
 
 	return result, nil
@@ -1081,8 +1223,19 @@ func parseFieldValue(data []byte, typeInfo symbols.TypeInfo) interface{} {
 		return fmt.Sprintf("<array %d bytes>", len(data))
 	}
 
-	// Handle nested structs
+	// Handle nested structs - recursively parse if we have field info
 	if typeInfo.IsStruct {
+		if len(typeInfo.Fields) > 0 {
+			nestedResult := make(map[string]interface{})
+			for _, field := range typeInfo.Fields {
+				if int(field.Offset)+int(field.Type.Size) > len(data) {
+					continue
+				}
+				fieldData := data[field.Offset : field.Offset+field.Type.Size]
+				nestedResult[field.Name] = parseFieldValue(fieldData, field.Type)
+			}
+			return nestedResult
+		}
 		return fmt.Sprintf("<struct %s, %d bytes>", typeInfo.Name, len(data))
 	}
 
