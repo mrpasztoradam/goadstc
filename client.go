@@ -15,6 +15,9 @@ import (
 	"github.com/mrpasztoradam/goadstc/internal/transport"
 )
 
+// ConnectionStateCallback is called when connection state changes.
+type ConnectionStateCallback func(oldState, newState transport.ConnectionState, err error)
+
 // Client represents an ADS client connection.
 type Client struct {
 	conn            *transport.Conn
@@ -28,6 +31,19 @@ type Client struct {
 	symbolTableMu   sync.RWMutex
 	typeRegistry    *symbols.TypeRegistry
 	typeRegistryMu  sync.RWMutex
+
+	// Reconnection support
+	config            *clientConfig
+	autoReconnect     bool
+	reconnectAttempts int
+	maxReconnectDelay time.Duration
+	stateCallback     ConnectionStateCallback
+	stateCallbackMu   sync.RWMutex
+	reconnectMu       sync.Mutex
+	shutdownCtx       context.Context
+	shutdownCancel    context.CancelFunc
+	healthCheckTicker *time.Ticker
+	healthCheckStop   chan struct{}
 }
 
 // DeviceInfo represents device information returned by ReadDeviceInfo.
@@ -48,12 +64,16 @@ type DeviceState struct {
 type Option func(*clientConfig) error
 
 type clientConfig struct {
-	address     string
-	targetNetID ams.NetID
-	targetPort  ams.Port
-	sourceNetID ams.NetID
-	sourcePort  ams.Port
-	timeout     time.Duration
+	address           string
+	targetNetID       ams.NetID
+	targetPort        ams.Port
+	sourceNetID       ams.NetID
+	sourcePort        ams.Port
+	timeout           time.Duration
+	autoReconnect     bool
+	maxReconnectDelay time.Duration
+	healthCheckPeriod time.Duration
+	stateCallback     ConnectionStateCallback
 }
 
 // WithTarget sets the target TCP address (required).
@@ -110,12 +130,57 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithAutoReconnect enables automatic reconnection on connection loss (optional).
+// When enabled, the client will automatically attempt to reconnect with exponential backoff.
+// Subscriptions will be re-established after successful reconnection.
+func WithAutoReconnect(enabled bool) Option {
+	return func(c *clientConfig) error {
+		c.autoReconnect = enabled
+		return nil
+	}
+}
+
+// WithMaxReconnectDelay sets the maximum delay between reconnection attempts (optional).
+// Default is 60 seconds. Only applies when auto-reconnect is enabled.
+func WithMaxReconnectDelay(delay time.Duration) Option {
+	return func(c *clientConfig) error {
+		if delay <= 0 {
+			return fmt.Errorf("goadstc: max reconnect delay must be positive")
+		}
+		c.maxReconnectDelay = delay
+		return nil
+	}
+}
+
+// WithHealthCheck enables periodic health checks (optional).
+// The client will periodically send a ReadState request to verify connection.
+// If health check fails and auto-reconnect is enabled, reconnection will be triggered.
+func WithHealthCheck(period time.Duration) Option {
+	return func(c *clientConfig) error {
+		if period <= 0 {
+			return fmt.Errorf("goadstc: health check period must be positive")
+		}
+		c.healthCheckPeriod = period
+		return nil
+	}
+}
+
+// WithStateCallback sets a callback for connection state changes (optional).
+// The callback is invoked whenever the connection state changes (connected, disconnected, etc.).
+func WithStateCallback(callback ConnectionStateCallback) Option {
+	return func(c *clientConfig) error {
+		c.stateCallback = callback
+		return nil
+	}
+}
+
 // New creates a new ADS client with the given options.
 func New(opts ...Option) (*Client, error) {
 	cfg := &clientConfig{
-		targetPort: ams.PortPLCRuntime1,
-		sourcePort: 32905,
-		timeout:    5 * time.Second,
+		targetPort:        ams.PortPLCRuntime1,
+		sourcePort:        32905,
+		timeout:           5 * time.Second,
+		maxReconnectDelay: 60 * time.Second,
 	}
 
 	for _, opt := range opts {
@@ -128,33 +193,102 @@ func New(opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("goadstc: target address is required")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
-	defer cancel()
-
-	conn, err := transport.Dial(ctx, cfg.address, cfg.timeout)
-	if err != nil {
-		return nil, fmt.Errorf("goadstc: connection failed: %w", err)
-	}
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 
 	client := &Client{
-		conn:          conn,
-		targetNetID:   cfg.targetNetID,
-		targetPort:    cfg.targetPort,
-		sourceNetID:   cfg.sourceNetID,
-		sourcePort:    cfg.sourcePort,
-		subscriptions: make(map[uint32]*Subscription),
-		symbolTable:   symbols.NewTable(),
-		typeRegistry:  symbols.NewTypeRegistry(),
+		config:            cfg,
+		targetNetID:       cfg.targetNetID,
+		targetPort:        cfg.targetPort,
+		sourceNetID:       cfg.sourceNetID,
+		sourcePort:        cfg.sourcePort,
+		subscriptions:     make(map[uint32]*Subscription),
+		symbolTable:       symbols.NewTable(),
+		typeRegistry:      symbols.NewTypeRegistry(),
+		autoReconnect:     cfg.autoReconnect,
+		maxReconnectDelay: cfg.maxReconnectDelay,
+		stateCallback:     cfg.stateCallback,
+		shutdownCtx:       shutdownCtx,
+		shutdownCancel:    shutdownCancel,
 	}
 
-	// Set up notification handler
-	conn.SetNotificationHandler(client.handleNotification)
+	// Initial connection
+	if err := client.connect(); err != nil {
+		if !cfg.autoReconnect {
+			return nil, fmt.Errorf("goadstc: connection failed: %w", err)
+		}
+		// With auto-reconnect, start in disconnected state
+		client.notifyStateChange(transport.StateClosed, transport.StateError, err)
+		go client.reconnectLoop()
+	}
+
+	// Start health check if configured
+	if cfg.healthCheckPeriod > 0 {
+		client.startHealthCheck(cfg.healthCheckPeriod)
+	}
 
 	return client, nil
 }
 
+// connect establishes the initial connection to the PLC.
+func (c *Client) connect() error {
+	ctx, cancel := context.WithTimeout(context.Background(), c.config.timeout)
+	defer cancel()
+
+	conn, err := transport.Dial(ctx, c.config.address, c.config.timeout)
+	if err != nil {
+		return err
+	}
+
+	c.conn = conn
+
+	// Set up notification handler
+	conn.SetNotificationHandler(c.handleNotification)
+
+	// Verify connection by reading device state
+	// This ensures the PLC is actually responsive (not in Config mode)
+	// Use direct request without retry to avoid circular reconnection
+	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), c.config.timeout)
+	defer verifyCancel()
+
+	invokeID := conn.NextInvokeID()
+	reqPacket := ams.NewRequestPacket(
+		c.targetNetID, c.targetPort,
+		c.sourceNetID, c.sourcePort,
+		uint16(ads.CmdReadState), invokeID, nil,
+	)
+
+	respPacket, err := conn.SendRequest(verifyCtx, reqPacket)
+	if err != nil {
+		conn.Close()
+		c.conn = nil
+		return fmt.Errorf("connection verification failed: %w", err)
+	}
+
+	// Check for ADS errors (e.g., target port not found when PLC is in Config mode)
+	if respPacket.Header.ErrorCode != 0 {
+		conn.Close()
+		c.conn = nil
+		return fmt.Errorf("connection verification failed: %w", ads.Error(respPacket.Header.ErrorCode))
+	}
+
+	c.notifyStateChange(transport.StateConnecting, transport.StateConnected, nil)
+
+	return nil
+}
+
 // Close closes the client connection and all active subscriptions.
 func (c *Client) Close() error {
+	// Signal shutdown
+	c.shutdownCancel()
+
+	// Stop health check
+	if c.healthCheckTicker != nil {
+		c.healthCheckTicker.Stop()
+		if c.healthCheckStop != nil {
+			close(c.healthCheckStop)
+		}
+	}
+
 	// Close all subscriptions
 	c.subscriptionsMu.Lock()
 	subs := make([]*Subscription, 0, len(c.subscriptions))
@@ -173,7 +307,187 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// reconnectLoop handles automatic reconnection with exponential backoff.
+// This loop continues indefinitely until connection succeeds or client is closed.
+func (c *Client) reconnectLoop() {
+	backoff := time.Second
+	attempt := 1
+
+	for {
+		select {
+		case <-c.shutdownCtx.Done():
+			// Client is being closed
+			return
+		case <-time.After(backoff):
+			c.reconnectMu.Lock()
+			c.reconnectAttempts = attempt
+			c.reconnectMu.Unlock()
+
+			c.notifyStateChange(transport.StateError, transport.StateConnecting,
+				fmt.Errorf("reconnection attempt %d", attempt))
+
+			if err := c.connect(); err != nil {
+				c.notifyStateChange(transport.StateConnecting, transport.StateError, err)
+				// Exponential backoff: 1s, 2s, 4s, 8s, ..., up to maxReconnectDelay
+				backoff *= 2
+				if backoff > c.maxReconnectDelay {
+					backoff = c.maxReconnectDelay
+				}
+				attempt++
+				// Continue trying - loop goes on indefinitely
+				continue
+			}
+
+			// Reconnection successful!
+			backoff = time.Second
+			attempt = 1
+
+			// Re-establish subscriptions
+			c.reestablishSubscriptions()
+
+			// Reset attempts counter to 0 to allow future reconnections
+			c.reconnectMu.Lock()
+			c.reconnectAttempts = 0
+			c.reconnectMu.Unlock()
+
+			// Exit this loop instance - a new one will be started by triggerReconnection if needed
+			return
+		}
+	}
+}
+
+// triggerReconnection closes the current connection and starts reconnection loop.
+func (c *Client) triggerReconnection(err error) {
+	if !c.autoReconnect {
+		return
+	}
+
+	// Acquire lock to prevent multiple concurrent reconnection attempts
+	c.reconnectMu.Lock()
+
+	// Check if already reconnecting
+	// We only skip if actively attempting (attempts > 0)
+	// Once reconnectLoop succeeds and resets to 0, we allow new loops to start
+	alreadyReconnecting := c.reconnectAttempts > 0
+
+	if !alreadyReconnecting {
+		// Set attempts to 1 to indicate reconnection in progress
+		// This prevents duplicate loops from starting
+		c.reconnectAttempts = 1
+	}
+
+	c.reconnectMu.Unlock()
+
+	if alreadyReconnecting {
+		// Another goroutine is already handling reconnection
+		return
+	}
+
+	// Close current connection if still present
+	if c.conn != nil {
+		c.conn.Close()
+		c.conn = nil
+	}
+
+	c.notifyStateChange(transport.StateConnected, transport.StateError, err)
+
+	// Start reconnection loop in background
+	go c.reconnectLoop()
+}
+
+// reestablishSubscriptions re-creates all subscriptions after reconnection.
+func (c *Client) reestablishSubscriptions() {
+	c.subscriptionsMu.Lock()
+	oldSubs := make(map[uint32]NotificationOptions)
+	for handle, sub := range c.subscriptions {
+		oldSubs[handle] = sub.opts
+		// Close old subscription (just close channel, don't send delete to PLC)
+		sub.closeMu.Lock()
+		if !sub.closed {
+			sub.closed = true
+			close(sub.notifCh)
+		}
+		sub.closeMu.Unlock()
+	}
+	// Clear old subscriptions
+	c.subscriptions = make(map[uint32]*Subscription)
+	c.subscriptionsMu.Unlock()
+
+	// Re-create subscriptions
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for _, opts := range oldSubs {
+		// Try to re-establish subscription
+		_, err := c.Subscribe(ctx, opts)
+		if err != nil {
+			// Log error but continue with other subscriptions
+			// Application should handle subscription failures via state callback
+			c.notifyStateChange(transport.StateConnected, transport.StateConnected,
+				fmt.Errorf("failed to re-establish subscription: %w", err))
+		}
+	}
+}
+
+// notifyStateChange calls the state callback if configured.
+func (c *Client) notifyStateChange(oldState, newState transport.ConnectionState, err error) {
+	c.stateCallbackMu.RLock()
+	callback := c.stateCallback
+	c.stateCallbackMu.RUnlock()
+
+	if callback != nil {
+		go callback(oldState, newState, err)
+	}
+}
+
+// startHealthCheck starts periodic health monitoring.
+func (c *Client) startHealthCheck(period time.Duration) {
+	c.healthCheckTicker = time.NewTicker(period)
+	c.healthCheckStop = make(chan struct{})
+
+	go func() {
+		for {
+			select {
+			case <-c.healthCheckStop:
+				return
+			case <-c.shutdownCtx.Done():
+				return
+			case <-c.healthCheckTicker.C:
+				ctx, cancel := context.WithTimeout(context.Background(), c.config.timeout)
+				_, err := c.ReadState(ctx)
+				cancel()
+
+				if err != nil {
+					// Health check failed - trigger reconnection
+					c.triggerReconnection(fmt.Errorf("health check failed: %w", err))
+					return
+				}
+			}
+		}
+	}()
+}
+
+// SetStateCallback sets or updates the connection state callback.
+func (c *Client) SetStateCallback(callback ConnectionStateCallback) {
+	c.stateCallbackMu.Lock()
+	c.stateCallback = callback
+	c.stateCallbackMu.Unlock()
+}
+
+// ReconnectAttempts returns the current number of reconnection attempts.
+// Returns 0 if connected or auto-reconnect is disabled.
+func (c *Client) ReconnectAttempts() int {
+	c.reconnectMu.Lock()
+	defer c.reconnectMu.Unlock()
+	return c.reconnectAttempts
+}
+
 func (c *Client) sendRequest(ctx context.Context, commandID ads.CommandID, reqData []byte) (*ams.Packet, error) {
+	// Use retry logic if auto-reconnect is enabled
+	if c.autoReconnect {
+		return c.sendRequestWithRetry(ctx, commandID, reqData, 3)
+	}
+
 	invokeID := c.conn.NextInvokeID()
 	reqPacket := ams.NewRequestPacket(
 		c.targetNetID, c.targetPort,
@@ -191,6 +505,71 @@ func (c *Client) sendRequest(ctx context.Context, commandID ads.CommandID, reqDa
 	}
 
 	return respPacket, nil
+}
+
+// sendRequestWithRetry attempts to send a request with automatic retry on connection errors.
+func (c *Client) sendRequestWithRetry(ctx context.Context, commandID ads.CommandID, reqData []byte, maxRetries int) (*ams.Packet, error) {
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if c.conn == nil {
+			return nil, fmt.Errorf("not connected")
+		}
+
+		invokeID := c.conn.NextInvokeID()
+		reqPacket := ams.NewRequestPacket(
+			c.targetNetID, c.targetPort,
+			c.sourceNetID, c.sourcePort,
+			uint16(commandID), invokeID, reqData,
+		)
+
+		respPacket, err := c.conn.SendRequest(ctx, reqPacket)
+		if err == nil {
+			if respPacket.Header.ErrorCode != 0 {
+				return nil, ads.Error(respPacket.Header.ErrorCode)
+			}
+			return respPacket, nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable (connection-related)
+		if !isRetryableError(err) {
+			return nil, err
+		}
+
+		// Don't retry on last attempt
+		if attempt == maxRetries {
+			break
+		}
+
+		// Wait before retry with exponential backoff
+		retryDelay := time.Duration(attempt+1) * 100 * time.Millisecond
+		select {
+		case <-time.After(retryDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	// All retries exhausted - trigger reconnection if enabled
+	if lastErr != nil && isRetryableError(lastErr) {
+		c.triggerReconnection(lastErr)
+	}
+
+	return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// isRetryableError returns true if the error is a transient connection error.
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection") ||
+		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "closed") ||
+		strings.Contains(errStr, "reset")
 }
 
 // GetSymbolHandle retrieves a handle for the given symbol name.

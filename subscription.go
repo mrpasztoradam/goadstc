@@ -23,6 +23,9 @@ type Subscription struct {
 	closed   bool
 	closeMu  sync.Mutex
 	closeErr error
+
+	// Stored for re-establishment after reconnect
+	opts NotificationOptions
 }
 
 // NotificationOptions configures a notification subscription.

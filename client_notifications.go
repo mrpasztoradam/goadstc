@@ -45,6 +45,7 @@ func (c *Client) Subscribe(ctx context.Context, opts NotificationOptions) (*Subs
 		notifCh: make(chan Notification, 16),
 		closed:  false,
 		closeMu: sync.Mutex{},
+		opts:    opts,
 	}
 
 	// Register subscription

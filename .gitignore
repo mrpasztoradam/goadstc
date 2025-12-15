@@ -33,3 +33,15 @@ spec/
 
 # Example outputs
 symbols_export.json
+
+# Example binaries
+examples/arrays/arrays
+examples/autoreconnect/autoreconnect
+examples/comprehensive/comprehensive
+examples/control/control
+examples/notifications/notifications
+examples/structs/structs
+examples/symbol-notifications/symbol-notifications
+examples/symbols/symbols
+examples/timedate/timedate
+examples/typesafe/typesafe

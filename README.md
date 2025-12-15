@@ -33,6 +33,16 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 - ✅ **Unicode Strings**: Full WSTRING support with UTF-16LE encoding
 - ✅ **Symbol-Based Notifications**: Subscribe to PLC variables by name
 
+### Connection Stability
+
+- ✅ **TCP Keepalive**: 30-second intervals with NoDelay optimization
+- ✅ **Graceful Shutdown**: 5-second timeout for pending operations
+- ✅ **Connection State Tracking**: Monitor connection lifecycle with callbacks
+- ✅ **Automatic Reconnection**: Exponential backoff with configurable max delay
+- ✅ **Health Monitoring**: Periodic connection health checks
+- ✅ **Request Retry Logic**: Automatic retry with backoff for transient failures
+- ✅ **Subscription Re-establishment**: Automatic restoration after reconnect
+
 ## What This Library Does NOT Support
 
 - UDP transport (TCP only)
@@ -134,12 +144,19 @@ func main() {
 
 ### Client Configuration Options
 
+**Basic Configuration:**
 - `WithTarget(address)` - Target TCP address (required)
 - `WithAMSNetID(netID)` - Target AMS NetID (required)
 - `WithAMSPort(port)` - Target AMS port (default: 851)
 - `WithSourceNetID(netID)` - Source AMS NetID (optional)
 - `WithSourcePort(port)` - Source AMS port (default: 32905)
 - `WithTimeout(duration)` - Request timeout (default: 5s)
+
+**Connection Stability:**
+- `WithAutoReconnect(enabled)` - Enable automatic reconnection on connection loss
+- `WithMaxReconnectDelay(duration)` - Maximum delay between reconnect attempts (default: 60s)
+- `WithHealthCheck(interval)` - Periodic connection health check interval (0 = disabled)
+- `WithStateCallback(callback)` - Receive connection state change notifications
 
 ### Core Methods
 
@@ -416,6 +433,7 @@ err = client.WriteControl(ctx, ads.StateRun, 0, nil) // Start PLC
 See the [`examples/`](examples/) directory for complete working examples:
 
 - [`examples/arrays/`](examples/arrays/) - Array element access and struct arrays
+- [`examples/autoreconnect/`](examples/autoreconnect/) - Automatic reconnection and connection monitoring
 - [`examples/comprehensive/`](examples/comprehensive/) - Complete feature demonstration
 - [`examples/control/`](examples/control/) - PLC control operations
 - [`examples/notifications/`](examples/notifications/) - Real-time notifications

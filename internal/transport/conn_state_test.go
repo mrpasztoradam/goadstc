@@ -11,7 +11,7 @@ import (
 func TestConnectionState(t *testing.T) {
 	conn := &Conn{}
 	conn.state.Store(int32(StateConnecting))
-	
+
 	if state := conn.getState(); state != StateConnecting {
 		t.Errorf("Expected StateConnecting, got %v", state)
 	}
@@ -64,7 +64,7 @@ func TestCompareAndSwapState(t *testing.T) {
 
 func TestErrorHandling(t *testing.T) {
 	conn := &Conn{}
-	
+
 	// No error initially
 	if err := conn.getError(); err != nil {
 		t.Errorf("Expected no error, got %v", err)
@@ -86,7 +86,7 @@ func TestErrorHandling(t *testing.T) {
 func TestGracefulShutdown(t *testing.T) {
 	// This is a unit test for the shutdown mechanism without actual network
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	conn := &Conn{
 		pending:        make(map[uint32]chan<- *ams.Packet),
 		shutdownCtx:    ctx,
@@ -105,7 +105,7 @@ func TestGracefulShutdown(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		conn.state.Store(int32(StateDisconnecting))
 		conn.shutdownCancel()
-		
+
 		conn.pendingMu.Lock()
 		for _, ch := range conn.pending {
 			close(ch)
