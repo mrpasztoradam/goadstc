@@ -3,15 +3,34 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/mrpasztoradam/goadstc"
 	"github.com/mrpasztoradam/goadstc/internal/ams"
 )
 
+// SymbolExport represents complete symbol information for JSON export
+type SymbolExport struct {
+	Name        string      `json:"name"`
+	Type        string      `json:"type"`
+	Size        uint32      `json:"size"`
+	IndexGroup  uint32      `json:"indexGroup"`
+	IndexOffset uint32      `json:"indexOffset"`
+	Comment     string      `json:"comment,omitempty"`
+	Value       interface{} `json:"value,omitempty"`
+	RawData     string      `json:"rawData,omitempty"` // Hex encoded
+}
+
 func main() {
+	// Parse command line flags
+	exportFile := flag.String("export", "", "Export complete symbol table with values to JSON file")
+	flag.Parse()
+
 	fmt.Println("╔══════════════════════════════════════════════════════════╗")
 	fmt.Println("║    Symbol Resolution Example (Milestone 1 & 2)          ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════╝")
@@ -102,9 +121,9 @@ func main() {
 		log.Printf("⚠️  Failed: %v", err)
 	} else {
 		fmt.Printf("  Read %d bytes from %s\n", len(data), symbolName)
-		if len(data) == 4 {
-			value := binary.LittleEndian.Uint32(data)
-			fmt.Printf("  Value: %d (0x%08X)\n", value, value)
+		if len(data) == 2 {
+			value := binary.LittleEndian.Uint16(data)
+			fmt.Printf("  Value: %d (0x%04X)\n", value, value)
 		}
 		fmt.Println("✅ Test 4 passed")
 	}
@@ -128,8 +147,131 @@ func main() {
 		fmt.Println("✅ Test 5 passed")
 	}
 
+	// Export symbols to JSON if requested
+	if *exportFile != "" {
+		fmt.Println("\n═══════════════════════════════════════════════════════════")
+		fmt.Println("💾 Exporting Symbol Table to JSON")
+		fmt.Println("═══════════════════════════════════════════════════════════")
+		if err := exportSymbolTable(ctx, client, *exportFile); err != nil {
+			log.Printf("❌ Failed to export: %v", err)
+		} else {
+			fmt.Printf("  ✅ Exported to: %s\n", *exportFile)
+		}
+	}
+
 	fmt.Println("\n╔══════════════════════════════════════════════════════════╗")
 	fmt.Println("║           Milestones 1 & 2 Complete!                    ║")
 	fmt.Println("║  Next: Milestone 3 - Type-safe operations               ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	if *exportFile == "" {
+		fmt.Println("💡 Tip: Use -export filename.json to export all symbols with values")
+	}
+}
+
+func exportSymbolTable(ctx context.Context, client *goadstc.Client, filename string) error {
+	// Get all symbols
+	symbols, err := client.ListSymbols(ctx)
+	if err != nil {
+		return fmt.Errorf("list symbols: %w", err)
+	}
+
+	exports := make([]SymbolExport, 0, len(symbols))
+
+	fmt.Printf("  Reading values for %d symbols...\n", len(symbols))
+	for i, sym := range symbols {
+		if (i+1)%5 == 0 || i+1 == len(symbols) {
+			fmt.Printf("  Progress: %d/%d\r", i+1, len(symbols))
+		}
+
+		export := SymbolExport{
+			Name:        sym.Name,
+			Type:        sym.Type.Name,
+			Size:        sym.Size,
+			IndexGroup:  sym.IndexGroup,
+			IndexOffset: sym.IndexOffset,
+			Comment:     sym.Comment,
+		}
+
+		// Try to read the value
+		data, err := client.ReadSymbol(ctx, sym.Name)
+		if err == nil && len(data) > 0 {
+			export.RawData = fmt.Sprintf("%x", data)
+			export.Value = parseValue(data, sym.Type.Name, sym.Size)
+		}
+
+		exports = append(exports, export)
+	}
+	fmt.Println()
+
+	// Write to JSON file
+	jsonData, err := json.MarshalIndent(exports, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal JSON: %w", err)
+	}
+
+	if err := os.WriteFile(filename, jsonData, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	return nil
+}
+
+func parseValue(data []byte, typeName string, size uint32) interface{} {
+	if len(data) == 0 {
+		return nil
+	}
+
+	// Parse common types
+	switch typeName {
+	case "BOOL":
+		if len(data) >= 1 {
+			return data[0] != 0
+		}
+	case "SINT", "INT8":
+		if len(data) >= 1 {
+			return int8(data[0])
+		}
+	case "USINT", "BYTE", "UINT8":
+		if len(data) >= 1 {
+			return uint8(data[0])
+		}
+	case "INT", "INT16":
+		if len(data) >= 2 {
+			return int16(binary.LittleEndian.Uint16(data))
+		}
+	case "UINT", "WORD", "UINT16":
+		if len(data) >= 2 {
+			return binary.LittleEndian.Uint16(data)
+		}
+	case "DINT", "INT32":
+		if len(data) >= 4 {
+			return int32(binary.LittleEndian.Uint32(data))
+		}
+	case "UDINT", "DWORD", "UINT32":
+		if len(data) >= 4 {
+			return binary.LittleEndian.Uint32(data)
+		}
+	case "LINT", "INT64":
+		if len(data) >= 8 {
+			return int64(binary.LittleEndian.Uint64(data))
+		}
+	case "ULINT", "LWORD", "UINT64":
+		if len(data) >= 8 {
+			return binary.LittleEndian.Uint64(data)
+		}
+	case "REAL", "FLOAT", "REAL32":
+		if len(data) >= 4 {
+			bits := binary.LittleEndian.Uint32(data)
+			return fmt.Sprintf("%.6f", float32(bits))
+		}
+	case "LREAL", "DOUBLE", "REAL64":
+		if len(data) >= 8 {
+			bits := binary.LittleEndian.Uint64(data)
+			return fmt.Sprintf("%.6f", float64(bits))
+		}
+	}
+
+	// For complex types or unknown types, return hex string
+	return fmt.Sprintf("0x%x", data)
 }
