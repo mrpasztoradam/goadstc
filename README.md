@@ -1,5 +1,8 @@
 # goadstc
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/mrpasztoradam/goadstc.svg)](https://pkg.go.dev/github.com/mrpasztoradam/goadstc)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mrpasztoradam/goadstc)](https://goreportcard.com/report/github.com/mrpasztoradam/goadstc)
+
 A production-quality Go library for TwinCAT ADS/AMS communication over TCP.
 
 ## What is ADS/AMS?
