@@ -544,3 +544,97 @@ func (c *Client) encodeSymbolValue(value interface{}, symbol *symbols.Symbol) ([
 		return nil, fmt.Errorf("unsupported type for auto-encoding: %T (use type-specific Write method or WriteSymbol)", value)
 	}
 }
+
+// WriteStructFields writes multiple fields to a struct by reading the entire struct,
+// modifying the specified fields at their byte offsets, and writing the struct back.
+// This is useful when individual field symbols aren't exported in the PLC.
+//
+// fieldValues is a map where keys are field names and values are the Go values to write.
+// The function automatically encodes each value based on its type information from the PLC.
+//
+// Example:
+//
+//	err := client.WriteStructFields(ctx, "MAIN.myStruct", map[string]interface{}{
+//	    "temperature": float32(25.5),
+//	    "enabled": true,
+//	    "counter": int16(42),
+//	})
+func (c *Client) WriteStructFields(ctx context.Context, symbolName string, fieldValues map[string]interface{}) error {
+	if err := c.ensureSymbolsLoaded(ctx); err != nil {
+		return ClassifyError(err, "write_struct_fields")
+	}
+
+	c.logger.Debug("writing struct fields", "symbol", symbolName, "fieldCount", len(fieldValues))
+
+	// Get symbol information
+	symbol, err := c.symbolTable.Get(symbolName)
+	if err != nil {
+		return ClassifyError(fmt.Errorf("symbol '%s' not found: %w", symbolName, err), "write_struct_fields")
+	}
+
+	// Ensure it's a struct type
+	if symbol.Type.Name == "" {
+		return ClassifyError(fmt.Errorf("symbol '%s' is not a struct type", symbolName), "write_struct_fields")
+	}
+
+	// Get type information for the struct
+	typeInfo, err := c.getOrFetchTypeInfo(ctx, symbol.Type.Name)
+	if err != nil {
+		return ClassifyError(fmt.Errorf("failed to get type info for '%s': %w", symbol.Type.Name, err), "write_struct_fields")
+	}
+
+	if len(typeInfo.Fields) == 0 {
+		return ClassifyError(fmt.Errorf("struct '%s' has no fields", symbolName), "write_struct_fields")
+	}
+
+	// Read the current struct data
+	structData, err := c.ReadSymbol(ctx, symbolName)
+	if err != nil {
+		return ClassifyError(fmt.Errorf("failed to read struct '%s': %w", symbolName, err), "write_struct_fields")
+	}
+
+	// Modify fields at their offsets
+	for fieldName, fieldValue := range fieldValues {
+		// Find field in type info
+		var fieldInfo *symbols.FieldInfo
+		for i := range typeInfo.Fields {
+			if typeInfo.Fields[i].Name == fieldName {
+				fieldInfo = &typeInfo.Fields[i]
+				break
+			}
+		}
+
+		if fieldInfo == nil {
+			return ClassifyError(fmt.Errorf("field '%s' not found in struct '%s'", fieldName, symbolName), "write_struct_fields")
+		}
+
+		// Encode the field value
+		fieldSymbol := &symbols.Symbol{
+			Type: fieldInfo.Type,
+			Size: fieldInfo.Type.Size,
+		}
+
+		encodedField, err := c.encodeSymbolValue(fieldValue, fieldSymbol)
+		if err != nil {
+			return ClassifyError(fmt.Errorf("failed to encode field '%s': %w", fieldName, err), "write_struct_fields")
+		}
+
+		// Check bounds
+		if fieldInfo.Offset+fieldInfo.Type.Size > uint32(len(structData)) {
+			return ClassifyError(fmt.Errorf("field '%s' offset %d + size %d exceeds struct size %d",
+				fieldName, fieldInfo.Offset, fieldInfo.Type.Size, len(structData)), "write_struct_fields")
+		}
+
+		// Write encoded field at offset
+		copy(structData[fieldInfo.Offset:fieldInfo.Offset+fieldInfo.Type.Size], encodedField)
+		c.logger.Debug("modified field in struct data", "field", fieldName, "offset", fieldInfo.Offset, "size", fieldInfo.Type.Size)
+	}
+
+	// Write the modified struct back
+	if err := c.WriteSymbol(ctx, symbolName, structData); err != nil {
+		return ClassifyError(fmt.Errorf("failed to write modified struct: %w", err), "write_struct_fields")
+	}
+
+	c.logger.Debug("successfully wrote struct fields", "symbol", symbolName, "fieldCount", len(fieldValues))
+	return nil
+}
