@@ -11,108 +11,63 @@ import (
 	"github.com/mrpasztoradam/goadstc/internal/symbols"
 )
 
-// Struct field access methods (Milestone 4)
+// Deprecated struct field methods - use ReadSymbolValue and type-safe Read/Write methods instead.
+// These methods are redundant and will be removed in a future version.
+//
+// For reading struct fields, use:
+//   - ReadSymbolValue(ctx, "MAIN.myStruct") - returns full struct as map[string]interface{}
+//   - ReadInt16(ctx, "MAIN.myStruct.field1") - direct field access with dot notation
+//
+// For writing struct fields, use:
+//   - WriteSymbolValue(ctx, "MAIN.myStruct.field1", value) - automatic type encoding
+//   - WriteInt16(ctx, "MAIN.myStruct.field1", value) - type-safe field writing
 
-// ReadStructField reads a field from a struct by path (e.g., "MAIN.myStruct.field1").
-// This is a simplified implementation that reads the entire struct and extracts the field.
-// For complex structs with detailed type information, use the type-safe methods directly.
-func (c *Client) ReadStructField(ctx context.Context, structPath string, fieldName string) ([]byte, error) {
-	if err := c.ensureSymbolsLoaded(ctx); err != nil {
-		return nil, err
-	}
-
-	// Get the struct symbol
-	symbol, err := c.symbolTable.Get(structPath)
-	if err != nil {
-		return nil, fmt.Errorf("get symbol %q: %w", structPath, err)
-	}
-
-	if !symbol.Type.IsStruct {
-		return nil, fmt.Errorf("%q is not a struct type", structPath)
-	}
-
-	// For now, read the entire struct
-	// In a full implementation, we would parse the type information to find field offset
-	structData, err := c.ReadSymbol(ctx, structPath)
-	if err != nil {
-		return nil, fmt.Errorf("read struct %q: %w", structPath, err)
-	}
-
-	// This is a simplified version - a full implementation would need
-	// the PLC to provide detailed type information including field offsets
-	return structData, fmt.Errorf("field extraction requires detailed type information from PLC")
-}
-
-// WriteStructField writes a field to a struct by path.
-// This is a simplified implementation that requires reading the entire struct,
-// modifying the field, and writing back.
-func (c *Client) WriteStructField(ctx context.Context, structPath string, fieldName string, fieldData []byte) error {
-	if err := c.ensureSymbolsLoaded(ctx); err != nil {
-		return err
-	}
-
-	// Get the struct symbol
-	symbol, err := c.symbolTable.Get(structPath)
-	if err != nil {
-		return fmt.Errorf("get symbol %q: %w", structPath, err)
-	}
-
-	if !symbol.Type.IsStruct {
-		return fmt.Errorf("%q is not a struct type", structPath)
-	}
-
-	// For now, return an error indicating limitation
-	// A full implementation would need detailed type information from the PLC
-	return fmt.Errorf("struct field writing requires detailed type information from PLC")
-}
-
-// ReadStructFieldInt16 reads an INT16 field from a struct.
-// This uses direct symbol path like "MAIN.myStruct.field1".
+// Deprecated: Use ReadSymbolValue or type-safe Read methods with dot notation (e.g., ReadInt16(ctx, "MAIN.struct.field"))
 func (c *Client) ReadStructFieldInt16(ctx context.Context, fieldPath string) (int16, error) {
 	return c.ReadInt16(ctx, fieldPath)
 }
 
-// ReadStructFieldUint16 reads a UINT16 field from a struct.
+// Deprecated: Use ReadSymbolValue or ReadUint16 with dot notation
 func (c *Client) ReadStructFieldUint16(ctx context.Context, fieldPath string) (uint16, error) {
 	return c.ReadUint16(ctx, fieldPath)
 }
 
-// ReadStructFieldInt32 reads an INT32 field from a struct.
+// Deprecated: Use ReadSymbolValue or ReadInt32 with dot notation
 func (c *Client) ReadStructFieldInt32(ctx context.Context, fieldPath string) (int32, error) {
 	return c.ReadInt32(ctx, fieldPath)
 }
 
-// ReadStructFieldUint32 reads a UINT32 field from a struct.
+// Deprecated: Use ReadSymbolValue or ReadUint32 with dot notation
 func (c *Client) ReadStructFieldUint32(ctx context.Context, fieldPath string) (uint32, error) {
 	return c.ReadUint32(ctx, fieldPath)
 }
 
-// ReadStructFieldBool reads a BOOL field from a struct.
+// Deprecated: Use ReadSymbolValue or ReadBool with dot notation
 func (c *Client) ReadStructFieldBool(ctx context.Context, fieldPath string) (bool, error) {
 	return c.ReadBool(ctx, fieldPath)
 }
 
-// WriteStructFieldInt16 writes an INT16 field to a struct.
+// Deprecated: Use WriteSymbolValue or WriteInt16 with dot notation
 func (c *Client) WriteStructFieldInt16(ctx context.Context, fieldPath string, value int16) error {
 	return c.WriteInt16(ctx, fieldPath, value)
 }
 
-// WriteStructFieldUint16 writes a UINT16 field to a struct.
+// Deprecated: Use WriteSymbolValue or WriteUint16 with dot notation
 func (c *Client) WriteStructFieldUint16(ctx context.Context, fieldPath string, value uint16) error {
 	return c.WriteUint16(ctx, fieldPath, value)
 }
 
-// WriteStructFieldInt32 writes an INT32 field to a struct.
+// Deprecated: Use WriteSymbolValue or WriteInt32 with dot notation
 func (c *Client) WriteStructFieldInt32(ctx context.Context, fieldPath string, value int32) error {
 	return c.WriteInt32(ctx, fieldPath, value)
 }
 
-// WriteStructFieldUint32 writes a UINT32 field to a struct.
+// Deprecated: Use WriteSymbolValue or WriteUint32 with dot notation
 func (c *Client) WriteStructFieldUint32(ctx context.Context, fieldPath string, value uint32) error {
 	return c.WriteUint32(ctx, fieldPath, value)
 }
 
-// WriteStructFieldBool writes a BOOL field to a struct.
+// Deprecated: Use WriteSymbolValue or WriteBool with dot notation
 func (c *Client) WriteStructFieldBool(ctx context.Context, fieldPath string, value bool) error {
 	return c.WriteBool(ctx, fieldPath, value)
 }
@@ -334,6 +289,9 @@ func isSimpleDataType(dt symbols.DataType) bool {
 // ReadStructAsMap reads a struct symbol and returns its fields as a map.
 // The map keys are field names and values are interface{} containing the parsed values.
 // If the struct type is registered via RegisterType, it will use that information for parsing.
+//
+// Deprecated: Use ReadSymbolValue instead, which automatically detects and parses all types.
+// ReadSymbolValue provides the same functionality with better ergonomics and no manual type registration needed.
 func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[string]interface{}, error) {
 	if err := c.ensureSymbolsLoaded(ctx); err != nil {
 		return nil, err

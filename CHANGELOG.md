@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Automatic Type Detection and Parsing**
+  - `ReadSymbolValue()` - Reads any symbol and automatically parses to appropriate Go type
+  - Supports all basic types (INT, REAL, BOOL, STRING, etc.)
+  - Automatically parses structs into `map[string]interface{}` with all fields
+  - Recursively parses nested structs and arrays
+  - Fetches type information from PLC using data type upload protocol
+  
+- **Automatic Type Encoding for Writes**
+  - `WriteSymbolValue()` - Automatically encodes Go values based on symbol type
+  - Supports all Go primitive types and common types (`time.Duration`, `time.Time`)
+  - Validates types against PLC symbol type
+  - Eliminates need for manual byte encoding
+
+- **Enhanced Data Type Upload**
+  - Improved `UploadDataTypeTable()` for fetching all type definitions from PLC
+  - Automatic caching of type information in `TypeRegistry`
+  - Recursive type information fetching for nested structs
+  - Support for complex struct hierarchies
+
+- **Batch Reading**
+  - `ReadMultipleSymbolValues()` - Read multiple symbols in one call
+  - Returns map with symbol names as keys
+  - API ready for future SumCommand optimization (0xF080)
+
+- **New Example**
+  - Complete auto-type detection example in `examples/auto-type/`
+  - Demonstrates automatic reading, writing, and batch operations
+  - Shows struct and array handling
+
+### Changed
+
+- Deprecated redundant struct field methods in favor of dot notation
+  - `ReadStructFieldInt16()` → Use `ReadInt16(ctx, "MAIN.struct.field")`
+  - All `ReadStructField*` and `WriteStructField*` methods marked deprecated
+  - Backward compatible - methods still available but discouraged
+
+- Deprecated `ReadStructAsMap()` in favor of `ReadSymbolValue()`
+  - `ReadSymbolValue()` provides same functionality with better ergonomics
+  - No manual type registration needed
+  - Backward compatible - method still available
+
+### Improved
+
+- Enhanced type information handling in symbol parser
+- Better error messages for type detection failures
+- Improved struct field extraction and parsing
+- More efficient type registry lookups with better caching
+
+### Documentation
+
+- Updated README.md with automatic type detection examples
+- Reorganized API documentation for clarity
+- Added Quick Start section with automatic type detection
+- Enhanced feature list highlighting new capabilities
+
 ## [0.2.1] - 2025-12-16
 
 ### Improved
