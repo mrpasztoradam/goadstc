@@ -5,10 +5,12 @@ This example demonstrates how to read and write to struct fields using automatic
 ## What it does
 
 1. **Reads `MAIN.structExample2`** using automatic type detection
+
    - Discovers all fields and their types automatically
    - No manual type definitions needed
 
 2. **Writes to all struct fields** based on detected types
+
    - Automatically determines appropriate values for each field type
    - Handles all common TwinCAT types (BOOL, INT, UINT, REAL, STRING, TIME, etc.)
    - Skips complex types (nested structs, arrays) with informative messages
@@ -99,6 +101,7 @@ The example uses the automatic type detection feature to:
 5. Verify all writes succeeded
 
 This approach eliminates the need for:
+
 - Manual struct definitions in Go
 - Hardcoded field names and types
 - Type-specific read/write logic for each field

@@ -10,20 +10,22 @@
   - Automatically parses structs into `map[string]interface{}` with all fields
   - Recursively parses nested structs and arrays
   - Fetches type information from PLC using data type upload protocol
-  
 - **Automatic Type Encoding for Writes**
+
   - `WriteSymbolValue()` - Automatically encodes Go values based on symbol type
   - Supports all Go primitive types and common types (`time.Duration`, `time.Time`)
   - Validates types against PLC symbol type
   - Eliminates need for manual byte encoding
 
 - **Enhanced Data Type Upload**
+
   - Improved `UploadDataTypeTable()` for fetching all type definitions from PLC
   - Automatic caching of type information in `TypeRegistry`
   - Recursive type information fetching for nested structs
   - Support for complex struct hierarchies
 
 - **Batch Reading**
+
   - `ReadMultipleSymbolValues()` - Read multiple symbols in one call
   - Returns map with symbol names as keys
   - API ready for future SumCommand optimization (0xF080)
@@ -36,6 +38,7 @@
 ### Changed
 
 - Deprecated redundant struct field methods in favor of dot notation
+
   - `ReadStructFieldInt16()` → Use `ReadInt16(ctx, "MAIN.struct.field")`
   - All `ReadStructField*` and `WriteStructField*` methods marked deprecated
   - Backward compatible - methods still available but discouraged

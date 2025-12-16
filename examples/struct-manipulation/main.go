@@ -46,7 +46,8 @@ func main() {
 	// Step 3: Verify the writes
 	verifyStructWrites(ctx, client)
 	// Bonus: Demonstrate partial field writing
-	demonstratePartialWrite(ctx, client)}
+	demonstratePartialWrite(ctx, client)
+}
 
 func readStructExample(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -99,7 +100,7 @@ func writeStructFields(ctx context.Context, client *goadstc.Client) {
 
 	// Prepare field values to write
 	fieldsToWrite := make(map[string]interface{})
-	
+
 	for fieldName, fieldValue := range structVal {
 		// Determine appropriate write value based on field type
 		switch v := fieldValue.(type) {

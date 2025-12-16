@@ -44,15 +44,18 @@ END_VAR
 ## What Gets Demonstrated
 
 1. **Reading Flexibility**
+
    - Read entire struct: `ReadSymbolValue(ctx, "MAIN.structExample2")`
    - Read specific field: `ReadSymbolValue(ctx, "MAIN.structExample2.iTest")`
    - Read nested field: `ReadSymbolValue(ctx, "MAIN.structExample2.stTest.iTest")`
 
 2. **Direct Field Writing**
+
    - No more struct manipulation
    - Write directly: `WriteSymbolValue(ctx, "MAIN.structExample2.iTest", int16(7777))`
 
 3. **Field-Level Subscriptions**
+
    - Monitor only what you care about
    - Subscribe: `SubscribeSymbol(ctx, "MAIN.structExample2.iTest", callback)`
 
@@ -69,12 +72,14 @@ go run ./examples/field-symbols
 ## Expected Behavior
 
 ### Without the pragma:
+
 - Reads will fail for individual fields
 - Writes will fail for individual fields
 - Subscriptions will fail for individual fields
 - Only whole struct operations work
 
 ### With the pragma:
+
 - Everything works seamlessly
 - All reads succeed
 - All writes succeed
@@ -83,16 +88,17 @@ go run ./examples/field-symbols
 
 ## Comparison
 
-| Operation | Without Pragma | With Pragma |
-|-----------|---------------|-------------|
-| Read whole struct | ✅ `ReadSymbolValue()` | ✅ `ReadSymbolValue()` |
-| Read field | ❌ Not possible | ✅ `ReadSymbolValue()` |
-| Write field | ⚠️ `WriteStructFields()` | ✅ `WriteSymbolValue()` |
-| Subscribe to field | ❌ Not possible | ✅ `SubscribeSymbol()` |
+| Operation          | Without Pragma           | With Pragma             |
+| ------------------ | ------------------------ | ----------------------- |
+| Read whole struct  | ✅ `ReadSymbolValue()`   | ✅ `ReadSymbolValue()`  |
+| Read field         | ❌ Not possible          | ✅ `ReadSymbolValue()`  |
+| Write field        | ⚠️ `WriteStructFields()` | ✅ `WriteSymbolValue()` |
+| Subscribe to field | ❌ Not possible          | ✅ `SubscribeSymbol()`  |
 
 ## Why This Matters
 
 With the pragma on all fields:
+
 - **Simpler code** - Use 4 functions for everything
 - **Better performance** - Read/write/subscribe to only what you need
 - **More flexible** - Build generic tools that work with any variable

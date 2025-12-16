@@ -61,7 +61,7 @@ func checkAvailableSymbols(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("🔍 Diagnostic: Checking Available Symbols")
 	fmt.Println("═══════════════════════════════════════════════════════════")
-	
+
 	// List all symbols to see what's actually registered
 	fmt.Println("Fetching ALL symbols from PLC...")
 	allSymbols, err := client.ListSymbols(ctx)
@@ -74,13 +74,13 @@ func checkAvailableSymbols(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("\nSymbols containing 'structExample2':")
 	foundCount := 0
 	for _, sym := range allSymbols {
-		if len(sym.Name) > 0 && (sym.Name == "MAIN.structExample2" || 
-		   len(sym.Name) > len("MAIN.structExample2") && sym.Name[:len("MAIN.structExample2")] == "MAIN.structExample2") {
+		if len(sym.Name) > 0 && (sym.Name == "MAIN.structExample2" ||
+			len(sym.Name) > len("MAIN.structExample2") && sym.Name[:len("MAIN.structExample2")] == "MAIN.structExample2") {
 			fmt.Printf("  ✅ %s (size: %d bytes)\n", sym.Name, sym.Size)
 			foundCount++
 		}
 	}
-	
+
 	if foundCount == 1 {
 		fmt.Println("\n❌ ISSUE: Only the parent struct is registered!")
 		fmt.Println("   Individual field symbols are NOT in the symbol table.")
@@ -144,7 +144,7 @@ func demonstrateReading(ctx context.Context, client *goadstc.Client) {
 
 	// Read individual fields directly
 	fmt.Println("2️⃣  Reading individual fields directly:")
-	
+
 	iTestValue, err := client.ReadSymbolValue(ctx, "MAIN.structExample2.iTest")
 	if err != nil {
 		fmt.Printf("   ⚠️  MAIN.structExample2.iTest: not exposed as symbol\n")
@@ -207,7 +207,7 @@ func demonstrateSubscriptions(ctx context.Context, client *goadstc.Client) {
 		MaxDelay:         100 * time.Millisecond,
 		CycleTime:        50 * time.Millisecond,
 	})
-	
+
 	if err != nil {
 		fmt.Printf("⚠️  Subscribe failed: %v\n", err)
 		fmt.Println("💡 Field not exposed as individual symbol in PLC")
@@ -230,7 +230,7 @@ func demonstrateSubscriptions(ctx context.Context, client *goadstc.Client) {
 			changeCount++
 			// Auto-parse the value
 			if val, err := client.ReadSymbolValue(ctx, "MAIN.structExample2.iTest"); err == nil {
-				fmt.Printf("   🔔 Change detected! iTest = %v (timestamp: %s)\n", 
+				fmt.Printf("   🔔 Change detected! iTest = %v (timestamp: %s)\n",
 					val, notif.Timestamp.Format("15:04:05.000"))
 			}
 		}
@@ -254,9 +254,9 @@ func demonstrateTypeAgnostic(ctx context.Context, client *goadstc.Client) {
 
 	// List of symbols to try - mix of struct and fields
 	symbolsToTry := []string{
-		"MAIN.structExample2",          // whole struct
-		"MAIN.structExample2.iTest",    // field
-		"MAIN.structExample2.stTest",   // nested struct
+		"MAIN.structExample2",        // whole struct
+		"MAIN.structExample2.iTest",  // field
+		"MAIN.structExample2.stTest", // nested struct
 	}
 
 	for _, symbolName := range symbolsToTry {

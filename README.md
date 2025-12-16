@@ -164,7 +164,7 @@ func main() {
     // Read multiple symbols at once
     values, _ := client.ReadMultipleSymbolValues(ctx,
         "MAIN.counter",
-        "MAIN.enabled", 
+        "MAIN.enabled",
         "MAIN.temperature",
     )
     for name, val := range values {
@@ -274,8 +274,8 @@ func main() {
   - Returns appropriate Go type: `int16`, `float32`, `bool`, `string`, `map[string]interface{}` (structs), `[]interface{}` (arrays)
   - Fetches type information from PLC automatically
   - Handles nested structs and arrays recursively
-  
 - `WriteSymbolValue(ctx, symbolName, value interface{}) error` - Automatically encodes value based on symbol type
+
   - Accepts Go primitives: `bool`, `int8`-`int64`, `uint8`-`uint64`, `float32`, `float64`, `string`
   - Supports `time.Duration` and `time.Time`
   - Automatic type validation and encoding
