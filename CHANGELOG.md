@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-12-16
+
+### Improved
+
+- Further reduced cyclomatic complexity in ADSState.String() method
+  - Replaced switch statement with map lookup (18→2 complexity)
+  - Improved performance and maintainability
+
 ## [0.2.0] - 2025-12-16
 
 ### Added
