@@ -462,40 +462,22 @@ else
     echo -e "${RED}Failed to write outer field${NC}"
 fi
 
-# Write inner struct - need to check if stTest symbol is exported
-print_test "Check if inner struct symbol is available"
-INNER_CHECK=$(curl -s "$API_BASE/symbols" | jq -r '.symbols[] | select(.name == "MAIN.structExample2.stTest") | .name')
-
-if [ -n "$INNER_CHECK" ]; then
-    # Inner struct is exported, we can write to it via WriteStructFields
-    print_test "Write inner struct fields (stTest is exported)"
-    RESPONSE=$(curl -s -X POST "$API_BASE/structs/MAIN.structExample2.stTest/fields" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "fields": {
+# Write nested struct as a whole using parent struct field
+print_test "Write nested struct field (stTest) as complete object"
+RESPONSE=$(curl -s -X POST "$API_BASE/structs/MAIN.structExample2/fields" \
+    -H "Content-Type: application/json" \
+    -d '{
+        "fields": {
+            "stTest": {
                 "iTest": 888,
                 "sTest": "TestString",
                 "uiTest": 999
             }
-        }')
-    if check_response "$RESPONSE" "fields_written" "Write inner struct fields"; then
-        print_pass "Inner struct fields written successfully"
-        echo "$RESPONSE" | jq . || true
-    fi
-else
-    # Inner struct not exported - need to add {attribute 'symbol'} in PLC
-    echo -e "${YELLOW}Inner struct MAIN.structExample2.stTest not exported as symbol${NC}"
-    echo -e "${BLUE}To enable writing nested fields, add {attribute 'symbol'} to stTest in PLC:${NC}"
-    echo -e "  ${YELLOW}TYPE nestedSt :${NC}"
-    echo -e "  ${YELLOW}STRUCT${NC}"
-    echo -e "  ${YELLOW}    iTest : INT;${NC}"
-    echo -e "  ${YELLOW}    {attribute 'symbol'}  // Add this line${NC}"
-    echo -e "  ${YELLOW}    stTest : TestSt;${NC}"
-    echo -e "  ${YELLOW}  END_STRUCT${NC}"
-    echo -e "  ${YELLOW}END_TYPE${NC}"
-    echo ""
-    echo -e "${BLUE}Skipping inner struct field writes${NC}"
-    ((PASSED_TESTS++))  # Count as pass - this is a PLC configuration issue, not a test failure
+        }
+    }')
+if check_response "$RESPONSE" "fields_written" "Write nested struct field"; then
+    print_pass "Nested struct field written successfully"
+    echo "$RESPONSE" | jq . || true
 fi
 
 # Verify all writes by reading back the complete structure

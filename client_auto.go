@@ -417,7 +417,7 @@ func (c *Client) WriteSymbolValue(ctx context.Context, symbolName string, value 
 	}
 
 	// Encode value based on Go type
-	data, err := c.encodeSymbolValue(value, symbol)
+	data, err := c.encodeSymbolValue(ctx, value, symbol)
 	if err != nil {
 		return ClassifyError(err, "write_symbol_value")
 	}
@@ -432,7 +432,7 @@ func (c *Client) WriteSymbolValue(ctx context.Context, symbolName string, value 
 }
 
 // encodeSymbolValue encodes a Go value into bytes based on the symbol's type.
-func (c *Client) encodeSymbolValue(value interface{}, symbol *symbols.Symbol) ([]byte, error) {
+func (c *Client) encodeSymbolValue(ctx context.Context, value interface{}, symbol *symbols.Symbol) ([]byte, error) {
 	// Handle nil
 	if value == nil {
 		return make([]byte, symbol.Size), nil
@@ -573,9 +573,61 @@ func (c *Client) encodeSymbolValue(value interface{}, symbol *symbols.Symbol) ([
 		copy(data, v)
 		return data, nil
 
+	case map[string]interface{}:
+		// Nested struct encoding - encode each field and combine
+		return c.encodeNestedStruct(ctx, v, symbol)
+
 	default:
 		return nil, fmt.Errorf("unsupported type for auto-encoding: %T (use type-specific Write method or WriteSymbol)", value)
 	}
+}
+
+// encodeNestedStruct encodes a map representing a struct into bytes
+func (c *Client) encodeNestedStruct(ctx context.Context, structMap map[string]interface{}, symbol *symbols.Symbol) ([]byte, error) {
+	// Get type information for the struct
+	typeInfo, err := c.getOrFetchTypeInfo(ctx, symbol.Type.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get type info for '%s': %w", symbol.Type.Name, err)
+	}
+
+	if len(typeInfo.Fields) == 0 {
+		return nil, fmt.Errorf("struct '%s' has no fields", symbol.Type.Name)
+	}
+
+	// Create a buffer of the correct size
+	data := make([]byte, symbol.Size)
+
+	// Encode each field in the map
+	for fieldName, fieldValue := range structMap {
+		// Find field in type info
+		var fieldInfo *symbols.FieldInfo
+		for i := range typeInfo.Fields {
+			if typeInfo.Fields[i].Name == fieldName {
+				fieldInfo = &typeInfo.Fields[i]
+				break
+			}
+		}
+
+		if fieldInfo == nil {
+			return nil, fmt.Errorf("field '%s' not found in struct '%s'", fieldName, symbol.Type.Name)
+		}
+
+		// Encode the field value
+		fieldSymbol := &symbols.Symbol{
+			Type: fieldInfo.Type,
+			Size: fieldInfo.Type.Size,
+		}
+
+		encodedField, err := c.encodeSymbolValue(ctx, fieldValue, fieldSymbol)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode field '%s': %w", fieldName, err)
+		}
+
+		// Copy encoded field at its offset
+		copy(data[fieldInfo.Offset:], encodedField)
+	}
+
+	return data, nil
 }
 
 // WriteStructFields writes multiple fields to a struct by reading the entire struct,
@@ -647,7 +699,7 @@ func (c *Client) WriteStructFields(ctx context.Context, symbolName string, field
 			Size: fieldInfo.Type.Size,
 		}
 
-		encodedField, err := c.encodeSymbolValue(fieldValue, fieldSymbol)
+		encodedField, err := c.encodeSymbolValue(ctx, fieldValue, fieldSymbol)
 		if err != nil {
 			return ClassifyError(fmt.Errorf("failed to encode field '%s': %w", fieldName, err), "write_struct_fields")
 		}
