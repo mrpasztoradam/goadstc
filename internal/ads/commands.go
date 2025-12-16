@@ -64,46 +64,32 @@ const (
 	StateStop2      ADSState = 16
 )
 
+var adsStateNames = map[ADSState]string{
+	StateInvalid:    "Invalid",
+	StateIdle:       "Idle",
+	StateReset:      "Reset",
+	StateInit:       "Init",
+	StateStart:      "Start",
+	StateRun:        "Run",
+	StateStop:       "Stop",
+	StateSaveConfig: "SaveConfig",
+	StateLoadConfig: "LoadConfig",
+	StatePowerGood:  "PowerGood",
+	StateError:      "Error",
+	StateShutdown:   "Shutdown",
+	StateSuspend:    "Suspend",
+	StateResume:     "Resume",
+	StateConfig:     "Config",
+	StateReconfig:   "Reconfig",
+	StateStop2:      "Stop2",
+}
+
 // String returns the string representation of the ADS state.
 func (s ADSState) String() string {
-	switch s {
-	case StateInvalid:
-		return "Invalid"
-	case StateIdle:
-		return "Idle"
-	case StateReset:
-		return "Reset"
-	case StateInit:
-		return "Init"
-	case StateStart:
-		return "Start"
-	case StateRun:
-		return "Run"
-	case StateStop:
-		return "Stop"
-	case StateSaveConfig:
-		return "SaveConfig"
-	case StateLoadConfig:
-		return "LoadConfig"
-	case StatePowerGood:
-		return "PowerGood"
-	case StateError:
-		return "Error"
-	case StateShutdown:
-		return "Shutdown"
-	case StateSuspend:
-		return "Suspend"
-	case StateResume:
-		return "Resume"
-	case StateConfig:
-		return "Config"
-	case StateReconfig:
-		return "Reconfig"
-	case StateStop2:
-		return "Stop2"
-	default:
-		return fmt.Sprintf("Unknown(%d)", s)
+	if name, ok := adsStateNames[s]; ok {
+		return name
 	}
+	return fmt.Sprintf("Unknown(%d)", s)
 }
 
 type ReadRequest struct {
