@@ -40,17 +40,22 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, fmt.Errorf("invalid source AMS Net ID: %w", err)
 	}
 
-	// Create ADS client
+	// Create ADS client with auto-reconnect enabled
 	client, err := goadstc.New(
 		goadstc.WithTarget(config.PLC.Target),
 		goadstc.WithAMSNetID(plcNetID),
 		goadstc.WithSourceNetID(sourceNetID),
 		goadstc.WithAMSPort(ams.Port(config.PLC.AMSPort)),
 		goadstc.WithTimeout(config.Timeout()),
+		goadstc.WithAutoReconnect(true),               // Enable automatic reconnection
+		goadstc.WithMaxReconnectDelay(30*time.Second), // Max 30s between reconnect attempts
+		goadstc.WithHealthCheck(5*time.Second),        // Health check every 5s
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ADS client: %w", err)
 	}
+
+	log.Printf("✅ Connected to PLC at %s (auto-reconnect enabled)", config.PLC.Target)
 
 	// Create middleware and handler
 	mw := NewMiddleware(client, config)

@@ -506,6 +506,39 @@ func (c *Client) encodeSymbolValue(value interface{}, symbol *symbols.Symbol) ([
 		return data, nil
 
 	case float64:
+		// Check if this is actually an integer value that should be encoded as such
+		// This handles JSON unmarshaling where all numbers become float64
+		if v == float64(int64(v)) && symbol.Type.Name != "REAL" && symbol.Type.Name != "LREAL" {
+			// It's a whole number - encode as integer based on symbol size
+			intVal := int64(v)
+			switch symbol.Size {
+			case 1:
+				if symbol.Type.Name == "SINT" || symbol.Type.Name == "INT8" {
+					return []byte{byte(int8(intVal))}, nil
+				}
+				return []byte{byte(uint8(intVal))}, nil
+			case 2:
+				data := make([]byte, 2)
+				binary.LittleEndian.PutUint16(data, uint16(intVal))
+				return data, nil
+			case 4:
+				data := make([]byte, 4)
+				binary.LittleEndian.PutUint32(data, uint32(intVal))
+				return data, nil
+			case 8:
+				data := make([]byte, 8)
+				binary.LittleEndian.PutUint64(data, uint64(intVal))
+				return data, nil
+			}
+		}
+		// It's a real floating point value or explicitly REAL/LREAL type
+		if symbol.Size == 4 {
+			// REAL (float32)
+			data := make([]byte, 4)
+			binary.LittleEndian.PutUint32(data, math.Float32bits(float32(v)))
+			return data, nil
+		}
+		// LREAL (float64)
 		data := make([]byte, 8)
 		binary.LittleEndian.PutUint64(data, math.Float64bits(v))
 		return data, nil
