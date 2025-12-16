@@ -13,7 +13,7 @@ const (
 	VersionMinor = 2
 
 	// VersionPatch is the patch version number.
-	VersionPatch = 1
+	VersionPatch = 2
 
 	// VersionPrerelease is the pre-release version string (e.g., "alpha", "beta", "rc.1").
 	// Empty string for stable releases.
