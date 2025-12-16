@@ -27,8 +27,12 @@ This library implements the ADS/AMS protocol specification for TCP transport, en
 
 ### Advanced Features
 
+- ✅ **Automatic Type Detection**: Read any symbol and get properly parsed Go values automatically
+- ✅ **Automatic Type Encoding**: Write values with auto-encoding based on symbol type
 - ✅ **34 Type-Safe Methods**: Read/write all TwinCAT data types with native Go types
-- ✅ **Automatic Type Discovery**: Fetch struct definitions directly from PLC
+- ✅ **Data Type Upload**: Fetch complete struct definitions from PLC automatically
+- ✅ **Struct Auto-Parsing**: Automatically parse nested structs with full field information
+- ✅ **Batch Reading**: Read multiple symbols efficiently (ready for SumCommand optimization)
 - ✅ **Struct Field Access**: Direct access to struct fields using dot notation
 - ✅ **Array Element Access**: Access array elements with bracket notation
 - ✅ **Complex Arrays**: Support for struct arrays and nested field access
@@ -101,6 +105,8 @@ See [examples/version/](examples/version/) for a complete example.
 
 ## Quick Start
 
+### Automatic Type Detection (Easiest)
+
 ```go
 package main
 
@@ -111,21 +117,15 @@ import (
     "time"
 
     "github.com/mrpasztoradam/goadstc"
-    "github.com/mrpasztoradam/goadstc/internal/ams"
 )
 
 func main() {
     // Create client with target configuration
-    plcIP := "10.10.0.3:48898"
-    plcNetID := ams.NetID{10, 0, 10, 20, 1, 1}
-    pcNetID := ams.NetID{10, 10, 0, 10, 1, 1}
-
-    client, err := goadstc.New(
-        goadstc.WithTarget(plcIP),
-        goadstc.WithAMSNetID(plcNetID),
-        goadstc.WithSourceNetID(pcNetID),
-        goadstc.WithAMSPort(851),
-        goadstc.WithTimeout(5*time.Second),
+    client, err := goadstc.NewClient(
+        goadstc.WithTarget("192.168.1.100:48898"),
+        goadstc.WithTargetNetID("192.168.1.100.1.1"),
+        goadstc.WithTargetPort(851),
+        goadstc.WithAutoReconnect(true),
     )
     if err != nil {
         log.Fatal(err)
@@ -133,29 +133,79 @@ func main() {
     defer client.Close()
 
     ctx := context.Background()
+    if err := client.Connect(ctx); err != nil {
+        log.Fatal(err)
+    }
 
-    // Read device info
-    info, err := client.ReadDeviceInfo(ctx)
+    // Read any symbol - type is automatically detected and parsed
+    value, err := client.ReadSymbolValue(ctx, "MAIN.counter")
     if err != nil {
         log.Fatal(err)
     }
-    fmt.Printf("Device: %s (v%d.%d.%d)\n",
-        info.Name, info.MajorVersion, info.MinorVersion, info.VersionBuild)
+    fmt.Printf("Counter: %v (type: %T)\n", value, value)
 
-    // Type-safe operations (recommended)
+    // Read a struct - returns map[string]interface{} with all fields
+    config, err := client.ReadSymbolValue(ctx, "MAIN.config")
+    if err != nil {
+        log.Fatal(err)
+    }
+    if m, ok := config.(map[string]interface{}); ok {
+        for name, val := range m {
+            fmt.Printf("  %s: %v\n", name, val)
+        }
+    }
+
+    // Write with automatic type encoding
+    err = client.WriteSymbolValue(ctx, "MAIN.counter", int16(42))
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Read multiple symbols at once
+    values, _ := client.ReadMultipleSymbolValues(ctx,
+        "MAIN.counter",
+        "MAIN.enabled",
+        "MAIN.temperature",
+    )
+    for name, val := range values {
+        fmt.Printf("%s: %v\n", name, val)
+    }
+}
+```
+
+### Type-Safe API (More Control)
+
+```go
+func main() {
+    client, err := goadstc.NewClient(
+        goadstc.WithTarget("192.168.1.100:48898"),
+        goadstc.WithTargetNetID("192.168.1.100.1.1"),
+        goadstc.WithTargetPort(851),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    ctx := context.Background()
+    if err := client.Connect(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    // Type-safe operations with exact types
     value, err := client.ReadUint16(ctx, "MAIN.counter")
     if err != nil {
         log.Fatal(err)
     }
     fmt.Printf("Counter: %d\n", value)
 
-    // Write a value
+    // Write with type safety
     err = client.WriteUint16(ctx, "MAIN.counter", 42)
     if err != nil {
         log.Fatal(err)
     }
 
-    // Access struct fields
+    // Access struct fields with dot notation
     temperature, err := client.ReadFloat32(ctx, "MAIN.sensor.temperature")
     if err != nil {
         log.Fatal(err)
@@ -216,7 +266,25 @@ func main() {
 - `Subscribe(ctx, opts)` - Create a notification subscription for real-time PLC data monitoring
 - `SubscribeSymbol(ctx, symbolName, opts)` - Subscribe to a symbol by name
 
-### Type-Safe Operations (Recommended)
+### Automatic Type Detection (Easiest)
+
+**Automatic Read/Write with Type Detection:**
+
+- `ReadSymbolValue(ctx, symbolName) (interface{}, error)` - Automatically detects type and parses value
+  - Returns appropriate Go type: `int16`, `float32`, `bool`, `string`, `map[string]interface{}` (structs), `[]interface{}` (arrays)
+  - Fetches type information from PLC automatically
+  - Handles nested structs and arrays recursively
+- `WriteSymbolValue(ctx, symbolName, value interface{}) error` - Automatically encodes value based on symbol type
+
+  - Accepts Go primitives: `bool`, `int8`-`int64`, `uint8`-`uint64`, `float32`, `float64`, `string`
+  - Supports `time.Duration` and `time.Time`
+  - Automatic type validation and encoding
+
+- `ReadMultipleSymbolValues(ctx, symbolNames...string) (map[string]interface{}, error)` - Read multiple symbols
+  - Returns map with symbol names as keys
+  - Individual errors stored in result map
+
+### Type-Safe Operations (More Control)
 
 All methods automatically resolve symbols and handle type conversions:
 

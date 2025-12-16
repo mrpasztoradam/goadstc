@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+
+        .control-panel {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        input,
+        button {
+            padding: 10px 15px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .disconnect {
+            background: #dc3545;
+        }
+
+        .disconnect:hover {
+            background: #c82333;
+        }
+
+        #messages {
+            border: 1px solid #ddd;
+            padding: 15px;
+            height: 400px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .message {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+        }
+
+        .message.data {
+            background: #d4edda;
+            border-left: 3px solid #28a745;
+        }
+
+        .message.subscribed {
+            background: #d1ecf1;
+            border-left: 3px solid #17a2b8;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            border-left: 3px solid #dc3545;
+        }
+
+        .message.info {
+            background: #fff3cd;
+            border-left: 3px solid #ffc107;
+        }
+
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .timestamp {
+            color: #666;
+            font-size: 11px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Test Client</h1>
+
+        <div id="status" class="status disconnected">Disconnected</div>
+
+        <div class="control-panel">
+            <input type="text" id="wsUrl" value="ws://localhost:8080/ws/subscribe" style="flex: 1; min-width: 250px;">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" class="disconnect" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+
+        <div class="control-panel">
+            <input type="text" id="symbols" placeholder="Symbol names (comma-separated)"
+                value="MAIN.temperature,MAIN.enabled" style="flex: 1;">
+            <input type="number" id="interval" placeholder="Interval (ms)" value="1000" style="width: 120px;">
+            <button id="subscribeBtn" onclick="subscribe()" disabled>Subscribe</button>
+            <button id="unsubscribeBtn" onclick="unsubscribe()" disabled>Unsubscribe</button>
+        </div>
+
+        <div class="control-panel">
+            <button onclick="clearMessages()">Clear Messages</button>
+        </div>
+
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let subscriptionId = null;
+
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                addMessage('Connected to ' + url, 'info');
+                updateStatus(true);
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                document.getElementById('subscribeBtn').disabled = false;
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleMessage(msg);
+                } catch (e) {
+                    addMessage('Invalid JSON: ' + event.data, 'error');
+                }
+            };
+
+            ws.onerror = (error) => {
+                addMessage('WebSocket error: ' + error, 'error');
+            };
+
+            ws.onclose = () => {
+                addMessage('Disconnected from server', 'info');
+                updateStatus(false);
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                document.getElementById('subscribeBtn').disabled = true;
+                document.getElementById('unsubscribeBtn').disabled = true;
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                subscriptionId = null;
+            }
+        }
+
+        function subscribe() {
+            if (!ws) return;
+
+            const symbolsInput = document.getElementById('symbols').value;
+            const symbols = symbolsInput.split(',').map(s => s.trim()).filter(s => s);
+            const interval = parseInt(document.getElementById('interval').value) || 1000;
+
+            subscriptionId = 'sub-' + Date.now();
+
+            const msg = {
+                type: 'subscribe',
+                request_id: subscriptionId,
+                symbols: symbols,
+                interval: interval
+            };
+
+            ws.send(JSON.stringify(msg));
+            addMessage('Sent subscription request: ' + JSON.stringify(msg, null, 2), 'info');
+        }
+
+        function unsubscribe() {
+            if (!ws || !subscriptionId) return;
+
+            const msg = {
+                type: 'unsubscribe',
+                request_id: subscriptionId
+            };
+
+            ws.send(JSON.stringify(msg));
+            addMessage('Sent unsubscribe request', 'info');
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'subscribed':
+                    addMessage('Subscribed! ID: ' + msg.request_id + ', Symbols: ' + msg.symbols.join(', '), 'subscribed');
+                    document.getElementById('unsubscribeBtn').disabled = false;
+                    break;
+
+                case 'data':
+                    const dataStr = JSON.stringify(msg.data, null, 2);
+                    addMessage('Data update:\n' + dataStr, 'data');
+                    break;
+
+                case 'unsubscribed':
+                    addMessage('Unsubscribed from: ' + msg.request_id, 'info');
+                    document.getElementById('unsubscribeBtn').disabled = true;
+                    subscriptionId = null;
+                    break;
+
+                case 'error':
+                    addMessage('Error: ' + msg.error + ' (ID: ' + msg.request_id + ')', 'error');
+                    break;
+
+                default:
+                    addMessage('Unknown message: ' + JSON.stringify(msg), 'info');
+            }
+        }
+
+        function addMessage(text, type) {
+            const messages = document.getElementById('messages');
+            const msg = document.createElement('div');
+            msg.className = 'message ' + type;
+
+            const timestamp = new Date().toLocaleTimeString();
+            msg.innerHTML = '<span class="timestamp">[' + timestamp + ']</span> ' +
+                text.replace(/\n/g, '<br>');
+
+            messages.appendChild(msg);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.textContent = 'Connected ✓';
+                status.className = 'status connected';
+            } else {
+                status.textContent = 'Disconnected ✗';
+                status.className = 'status disconnected';
+            }
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+        }
+    </script>
+</body>
+
+</html>

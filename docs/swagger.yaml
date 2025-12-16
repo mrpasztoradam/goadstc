@@ -1,0 +1,564 @@
+basePath: /api/v1
+definitions:
+  middleware.BatchReadRequest:
+    properties:
+      symbols:
+        example:
+        - MAIN.temperature
+        - MAIN.counter
+        items:
+          type: string
+        type: array
+    type: object
+  middleware.BatchReadResponse:
+    properties:
+      data:
+        additionalProperties: true
+        type: object
+      errors:
+        additionalProperties:
+          type: string
+        type: object
+      success:
+        type: boolean
+    type: object
+  middleware.BatchWriteRequest:
+    type: object
+  middleware.BatchWriteResponse:
+    properties:
+      errors:
+        additionalProperties:
+          type: string
+        type: object
+      results:
+        additionalProperties:
+          type: boolean
+        type: object
+      success:
+        type: boolean
+    type: object
+  middleware.ControlRequest:
+    properties:
+      command:
+        description: '"start", "stop", "reset"'
+        type: string
+    type: object
+  middleware.ControlResponse:
+    properties:
+      command:
+        type: string
+      error:
+        type: string
+      success:
+        type: boolean
+    type: object
+  middleware.ErrorDetail:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties: true
+        type: object
+      message:
+        type: string
+    type: object
+  middleware.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/middleware.ErrorDetail'
+    type: object
+  middleware.HealthResponse:
+    properties:
+      connected:
+        type: boolean
+      status:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  middleware.InfoResponse:
+    properties:
+      ams_net_id:
+        type: string
+      ams_port:
+        type: integer
+      connected:
+        type: boolean
+      server_uptime:
+        type: string
+      source_net_id:
+        type: string
+      symbol_count:
+        type: integer
+      target:
+        type: string
+    type: object
+  middleware.StateResponse:
+    properties:
+      ads_state:
+        type: integer
+      ads_state_name:
+        type: string
+      device_state:
+        type: integer
+      error:
+        type: string
+      success:
+        type: boolean
+    type: object
+  middleware.SymbolInfo:
+    properties:
+      comment:
+        type: string
+      index_group:
+        type: integer
+      index_offset:
+        type: integer
+      name:
+        type: string
+      size:
+        type: integer
+      type:
+        type: string
+    type: object
+  middleware.SymbolTableResponse:
+    properties:
+      count:
+        type: integer
+      error:
+        type: string
+      success:
+        type: boolean
+      symbols:
+        items:
+          $ref: '#/definitions/middleware.SymbolInfo'
+        type: array
+    type: object
+  middleware.SymbolValueResponse:
+    properties:
+      error:
+        type: string
+      success:
+        type: boolean
+      symbol:
+        type: string
+      type:
+        type: string
+      value: {}
+    type: object
+  middleware.VersionResponse:
+    properties:
+      error:
+        type: string
+      major_version:
+        type: integer
+      minor_version:
+        type: integer
+      name:
+        type: string
+      success:
+        type: boolean
+      version:
+        type: string
+      version_build:
+        type: integer
+    type: object
+  middleware.WriteStructFieldsRequest:
+    type: object
+  middleware.WriteStructFieldsResponse:
+    properties:
+      error:
+        type: string
+      fields_written:
+        type: integer
+      success:
+        type: boolean
+    type: object
+  middleware.WriteSymbolRequest:
+    type: object
+  middleware.WriteSymbolResponse:
+    properties:
+      error:
+        type: string
+      success:
+        type: boolean
+      symbol:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    name: GoADS Middleware
+    url: https://github.com/yourusername/goadstc
+  description: |-
+    REST API for interacting with TwinCAT PLC via ADS protocol
+
+    ## Features
+    - Read and write PLC symbols with automatic type detection
+    - Batch operations for multiple symbols
+    - Struct field manipulation using byte offsets
+    - Symbol table retrieval with metadata
+    - WebSocket streaming for real-time symbol notifications (coming soon)
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: GoADS HTTP/WebSocket Middleware API
+  version: "1.0"
+paths:
+  /api/v1/structs/{name}/fields:
+    post:
+      consumes:
+      - application/json
+      description: Write multiple fields to a struct using byte offset method
+      parameters:
+      - description: Struct symbol name
+        example: '"MAIN.myStruct"'
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Fields to write
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/middleware.WriteStructFieldsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.WriteStructFieldsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Write struct fields
+      tags:
+      - structs
+  /api/v1/symbols/{name}/value:
+    post:
+      consumes:
+      - application/json
+      description: Write a value to a PLC symbol with automatic type encoding
+      parameters:
+      - description: Symbol name
+        example: '"MAIN.temperature"'
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Value to write
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/middleware.WriteSymbolRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.WriteSymbolResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Write symbol value
+      tags:
+      - symbols
+  /control:
+    post:
+      consumes:
+      - application/json
+      description: Execute PLC control commands (start, stop, reset)
+      parameters:
+      - description: Control command
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/middleware.ControlRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.ControlResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Control PLC
+      tags:
+      - control
+  /health:
+    get:
+      description: Check if the server and PLC connection are healthy
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.HealthResponse'
+      summary: Health check
+      tags:
+      - system
+  /info:
+    get:
+      description: Get server and PLC connection information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.InfoResponse'
+      summary: Server info
+      tags:
+      - system
+  /state:
+    get:
+      description: Retrieve current PLC state (running, stopped, etc.)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.StateResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Get PLC state
+      tags:
+      - control
+  /structs/{name}:
+    get:
+      description: Read an entire struct with all its fields
+      parameters:
+      - description: Struct symbol name
+        example: '"MAIN.myStruct"'
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.SymbolValueResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Read struct
+      tags:
+      - structs
+  /symbols:
+    get:
+      description: Retrieve all symbols from the PLC symbol table
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.SymbolTableResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Get symbol table
+      tags:
+      - symbols
+  /symbols/{name}:
+    get:
+      description: Retrieve metadata for a specific symbol
+      parameters:
+      - description: Symbol name
+        example: '"MAIN.temperature"'
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.SymbolInfo'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Get symbol metadata
+      tags:
+      - symbols
+  /symbols/{name}/value:
+    get:
+      description: Read the current value of a PLC symbol with automatic type detection
+      parameters:
+      - description: Symbol name
+        example: '"MAIN.temperature"'
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.SymbolValueResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Read symbol value
+      tags:
+      - symbols
+  /symbols/read:
+    post:
+      consumes:
+      - application/json
+      description: Read multiple symbol values in a single request
+      parameters:
+      - description: List of symbols to read
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/middleware.BatchReadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.BatchReadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Batch read symbols
+      tags:
+      - symbols
+  /symbols/write:
+    post:
+      consumes:
+      - application/json
+      description: Write multiple symbol values in a single request
+      parameters:
+      - description: Map of symbols to values
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/middleware.BatchWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.BatchWriteResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Batch write symbols
+      tags:
+      - symbols
+  /version:
+    get:
+      description: Retrieve PLC runtime name and version information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/middleware.VersionResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/middleware.ErrorResponse'
+      summary: Get runtime version
+      tags:
+      - system
+  /ws/subscribe:
+    get:
+      consumes:
+      - application/json
+      description: Establish WebSocket connection for real-time symbol value updates
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+      summary: WebSocket subscription endpoint
+      tags:
+      - websocket
+schemes:
+- http
+- https
+swagger: "2.0"
+tags:
+- description: Symbol read/write operations
+  name: symbols
+- description: Struct field manipulation
+  name: structs
+- description: Health and info endpoints
+  name: health
