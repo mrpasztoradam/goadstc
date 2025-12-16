@@ -1,0 +1,115 @@
+### Quick Test Requests for GoADS Middleware Server
+
+# Health Check
+GET http://localhost:8080/api/v1/health
+
+###
+
+# Server Info
+GET http://localhost:8080/api/v1/info
+
+###
+
+# Get Runtime Version
+GET http://localhost:8080/api/v1/version
+
+###
+
+# Get PLC State
+GET http://localhost:8080/api/v1/state
+
+###
+
+# Get Symbol Table
+GET http://localhost:8080/api/v1/symbols
+
+###
+
+# Read Single Symbol
+GET http://localhost:8080/api/v1/symbols/MAIN.i/value
+
+###
+
+# Get Symbol Info
+GET http://localhost:8080/api/v1/symbols/MAIN.structExample
+
+###
+
+# Write Symbol Value
+POST http://localhost:8080/api/v1/symbols/MAIN.iInt/value
+Content-Type: application/json
+
+{
+  "value": 42
+}
+
+###
+
+# Batch Read Symbols
+POST http://localhost:8080/api/v1/symbols/read
+Content-Type: application/json
+
+{
+  "symbols": ["MAIN.i", "MAIN.iInt", "MAIN.uUint"]
+}
+
+###
+
+# Batch Write Symbols
+POST http://localhost:8080/api/v1/symbols/write
+Content-Type: application/json
+
+{
+  "writes": {
+    "MAIN.iInt": 100,
+    "MAIN.uUint": 200
+  }
+}
+
+###
+
+# Read Struct
+GET http://localhost:8080/api/v1/structs/MAIN.structExample
+
+###
+
+# Write Struct Fields
+POST http://localhost:8080/api/v1/structs/MAIN.structExample/fields
+Content-Type: application/json
+
+{
+  "fields": {
+    "iTest": 999,
+    "sTest": "Updated!"
+  }
+}
+
+###
+
+# Control: Start PLC
+POST http://localhost:8080/api/v1/control
+Content-Type: application/json
+
+{
+  "command": "start"
+}
+
+###
+
+# Control: Stop PLC
+POST http://localhost:8080/api/v1/control
+Content-Type: application/json
+
+{
+  "command": "stop"
+}
+
+###
+
+# Control: Reset PLC
+POST http://localhost:8080/api/v1/control
+Content-Type: application/json
+
+{
+  "command": "reset"
+}
