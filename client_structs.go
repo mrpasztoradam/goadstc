@@ -339,16 +339,37 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 		return nil, err
 	}
 
+	// Get symbol and validate type
+	symbol, structTypeName, err := c.getAndValidateStructSymbol(symbolName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read the struct data
+	structData, err := c.ReadSymbol(ctx, symbolName)
+	if err != nil {
+		return nil, fmt.Errorf("read struct %q: %w", symbolName, err)
+	}
+
+	// Get or fetch type information
+	typeInfo, hasTypeInfo := c.resolveTypeInfo(ctx, structTypeName)
+
+	// Parse struct using available type information
+	return c.parseStructData(structData, typeInfo, hasTypeInfo, symbol)
+}
+
+// getAndValidateStructSymbol gets the symbol and validates it's a struct type.
+func (c *Client) getAndValidateStructSymbol(symbolName string) (*symbols.Symbol, string, error) {
 	// Parse array notation if present
 	baseName, _, err := parseArrayAccess(symbolName)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Get the base symbol to check type
 	symbol, err := c.symbolTable.Get(baseName)
 	if err != nil {
-		return nil, fmt.Errorf("get symbol %q: %w", baseName, err)
+		return nil, "", fmt.Errorf("get symbol %q: %w", baseName, err)
 	}
 
 	// Determine the struct type name (handle array of structs)
@@ -358,31 +379,21 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 	}
 
 	// Verify it's a struct type
-	if !symbol.Type.IsStruct {
-		// For arrays, check if the element type is a struct
-		if !strings.Contains(symbol.Type.Name, "ARRAY") {
-			return nil, fmt.Errorf("%q is not a struct type", symbolName)
-		}
+	if !symbol.Type.IsStruct && !strings.Contains(symbol.Type.Name, "ARRAY") {
+		return nil, "", fmt.Errorf("%q is not a struct type", symbolName)
 	}
 
-	// Read the struct data (ReadSymbol handles array notation)
-	structData, err := c.ReadSymbol(ctx, symbolName)
-	if err != nil {
-		return nil, fmt.Errorf("read struct %q: %w", symbolName, err)
-	}
+	return symbol, structTypeName, nil
+}
 
-	// Parse the struct based on available type information
-	result := make(map[string]interface{})
-
+// resolveTypeInfo gets type info from registry or fetches from PLC.
+func (c *Client) resolveTypeInfo(ctx context.Context, structTypeName string) (symbols.TypeInfo, bool) {
 	// Check if type is registered in the type registry
-	var typeInfo symbols.TypeInfo
-	var hasTypeInfo bool
-
 	c.typeRegistryMu.RLock()
-	typeInfo, hasTypeInfo = c.typeRegistry.Get(structTypeName)
+	typeInfo, hasTypeInfo := c.typeRegistry.Get(structTypeName)
 	c.typeRegistryMu.RUnlock()
 
-	// If not registered, try to fetch from PLC and cache it
+	// If not registered or no fields, try to fetch from PLC
 	if !hasTypeInfo || len(typeInfo.Fields) == 0 {
 		if fetchedTypeInfo, err := c.fetchTypeInfoFromPLC(ctx, structTypeName); err == nil {
 			typeInfo = fetchedTypeInfo
@@ -394,36 +405,47 @@ func (c *Client) ReadStructAsMap(ctx context.Context, symbolName string) (map[st
 		}
 	}
 
+	return typeInfo, hasTypeInfo
+}
+
+// parseStructData parses struct data using available type information.
+func (c *Client) parseStructData(structData []byte, typeInfo symbols.TypeInfo, hasTypeInfo bool, symbol *symbols.Symbol) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
 	// Use type info if available
 	if hasTypeInfo && len(typeInfo.Fields) > 0 {
-		for _, field := range typeInfo.Fields {
-			if int(field.Offset)+int(field.Type.Size) > len(structData) {
-				continue // Skip fields beyond data bounds
-			}
-			fieldData := structData[field.Offset : field.Offset+field.Type.Size]
-			result[field.Name] = parseFieldValue(fieldData, field.Type)
-		}
+		parseFieldsFromTypeInfo(result, structData, typeInfo.Fields)
 		return result, nil
 	}
 
-	// Fall back to symbol table field information (rarely has detail)
+	// Fall back to symbol table field information
 	if len(symbol.Type.Fields) > 0 {
-		for _, field := range symbol.Type.Fields {
-			if int(field.Offset)+int(field.Type.Size) > len(structData) {
-				continue // Skip fields beyond data bounds
-			}
-			fieldData := structData[field.Offset : field.Offset+field.Type.Size]
-			result[field.Name] = parseFieldValue(fieldData, field.Type)
-		}
-	} else {
-		// No detailed field info available
-		result["_raw"] = structData
-		result["_size"] = len(structData)
-		result["_type"] = symbol.Type.Name
-		result["_note"] = "Type information not available from PLC. Data type upload may not be supported by this TwinCAT version."
+		parseFieldsFromTypeInfo(result, structData, symbol.Type.Fields)
+		return result, nil
 	}
 
+	// No detailed field info available
+	addRawStructInfo(result, structData, symbol.Type.Name)
 	return result, nil
+}
+
+// parseFieldsFromTypeInfo parses fields using type information.
+func parseFieldsFromTypeInfo(result map[string]interface{}, structData []byte, fields []symbols.FieldInfo) {
+	for _, field := range fields {
+		if int(field.Offset)+int(field.Type.Size) > len(structData) {
+			continue // Skip fields beyond data bounds
+		}
+		fieldData := structData[field.Offset : field.Offset+field.Type.Size]
+		result[field.Name] = parseFieldValue(fieldData, field.Type)
+	}
+}
+
+// addRawStructInfo adds raw struct information when type info is not available.
+func addRawStructInfo(result map[string]interface{}, structData []byte, typeName string) {
+	result["_raw"] = structData
+	result["_size"] = len(structData)
+	result["_type"] = typeName
+	result["_note"] = "Type information not available from PLC. Data type upload may not be supported by this TwinCAT version."
 }
 
 // parseFieldValue parses a field value based on its type.
@@ -437,80 +459,139 @@ func parseFieldValue(data []byte, typeInfo symbols.TypeInfo) interface{} {
 		return fmt.Sprintf("<array %d bytes>", len(data))
 	}
 
-	// Handle nested structs - recursively parse if we have field info
+	// Handle nested structs
 	if typeInfo.IsStruct {
-		if len(typeInfo.Fields) > 0 {
-			nestedResult := make(map[string]interface{})
-			for _, field := range typeInfo.Fields {
-				if int(field.Offset)+int(field.Type.Size) > len(data) {
-					continue
-				}
-				fieldData := data[field.Offset : field.Offset+field.Type.Size]
-				nestedResult[field.Name] = parseFieldValue(fieldData, field.Type)
-			}
-			return nestedResult
-		}
-		return fmt.Sprintf("<struct %s, %d bytes>", typeInfo.Name, len(data))
+		return parseNestedStruct(data, typeInfo)
 	}
 
 	// Parse simple types
-	switch typeInfo.BaseType {
-	case symbols.DataTypeBool:
-		if len(data) >= 1 {
-			return data[0] != 0
-		}
-	case symbols.DataTypeInt8:
-		if len(data) >= 1 {
-			return int8(data[0])
-		}
-	case symbols.DataTypeUInt8:
-		if len(data) >= 1 {
-			return uint8(data[0])
-		}
-	case symbols.DataTypeInt16:
-		if len(data) >= 2 {
-			return int16(binary.LittleEndian.Uint16(data))
-		}
-	case symbols.DataTypeUInt16:
-		if len(data) >= 2 {
-			return binary.LittleEndian.Uint16(data)
-		}
-	case symbols.DataTypeInt32:
-		if len(data) >= 4 {
-			return int32(binary.LittleEndian.Uint32(data))
-		}
-	case symbols.DataTypeUInt32:
-		if len(data) >= 4 {
-			return binary.LittleEndian.Uint32(data)
-		}
-	case symbols.DataTypeInt64:
-		if len(data) >= 8 {
-			return int64(binary.LittleEndian.Uint64(data))
-		}
-	case symbols.DataTypeUInt64:
-		if len(data) >= 8 {
-			return binary.LittleEndian.Uint64(data)
-		}
-	case symbols.DataTypeReal32:
-		if len(data) >= 4 {
-			bits := binary.LittleEndian.Uint32(data)
-			return math.Float32frombits(bits)
-		}
-	case symbols.DataTypeReal64:
-		if len(data) >= 8 {
-			bits := binary.LittleEndian.Uint64(data)
-			return math.Float64frombits(bits)
-		}
-	case symbols.DataTypeString:
-		// Find null terminator
-		for i, b := range data {
-			if b == 0 {
-				return string(data[:i])
-			}
-		}
-		return string(data)
+	if value := parseSimpleType(data, typeInfo.BaseType); value != nil {
+		return value
 	}
 
 	// Default: return hex string
 	return fmt.Sprintf("0x%x", data)
+}
+
+// parseNestedStruct handles parsing of nested struct types.
+func parseNestedStruct(data []byte, typeInfo symbols.TypeInfo) interface{} {
+	if len(typeInfo.Fields) == 0 {
+		return fmt.Sprintf("<struct %s, %d bytes>", typeInfo.Name, len(data))
+	}
+
+	nestedResult := make(map[string]interface{})
+	for _, field := range typeInfo.Fields {
+		if int(field.Offset)+int(field.Type.Size) > len(data) {
+			continue
+		}
+		fieldData := data[field.Offset : field.Offset+field.Type.Size]
+		nestedResult[field.Name] = parseFieldValue(fieldData, field.Type)
+	}
+	return nestedResult
+}
+
+// parseSimpleType parses simple data types. Returns nil if type cannot be parsed.
+func parseSimpleType(data []byte, baseType symbols.DataType) interface{} {
+	switch baseType {
+	case symbols.DataTypeBool:
+		return parseBool(data)
+	case symbols.DataTypeInt8, symbols.DataTypeUInt8:
+		return parseInt8Types(data, baseType)
+	case symbols.DataTypeInt16, symbols.DataTypeUInt16:
+		return parseInt16Types(data, baseType)
+	case symbols.DataTypeInt32, symbols.DataTypeUInt32:
+		return parseInt32Types(data, baseType)
+	case symbols.DataTypeInt64, symbols.DataTypeUInt64:
+		return parseInt64Types(data, baseType)
+	case symbols.DataTypeReal32:
+		return parseReal32(data)
+	case symbols.DataTypeReal64:
+		return parseReal64(data)
+	case symbols.DataTypeString:
+		return parseString(data)
+	}
+	return nil
+}
+
+// parseBool parses a boolean value.
+func parseBool(data []byte) interface{} {
+	if len(data) >= 1 {
+		return data[0] != 0
+	}
+	return nil
+}
+
+// parseInt8Types parses 8-bit integer types.
+func parseInt8Types(data []byte, baseType symbols.DataType) interface{} {
+	if len(data) < 1 {
+		return nil
+	}
+	if baseType == symbols.DataTypeInt8 {
+		return int8(data[0])
+	}
+	return uint8(data[0])
+}
+
+// parseInt16Types parses 16-bit integer types.
+func parseInt16Types(data []byte, baseType symbols.DataType) interface{} {
+	if len(data) < 2 {
+		return nil
+	}
+	val := binary.LittleEndian.Uint16(data)
+	if baseType == symbols.DataTypeInt16 {
+		return int16(val)
+	}
+	return val
+}
+
+// parseInt32Types parses 32-bit integer types.
+func parseInt32Types(data []byte, baseType symbols.DataType) interface{} {
+	if len(data) < 4 {
+		return nil
+	}
+	val := binary.LittleEndian.Uint32(data)
+	if baseType == symbols.DataTypeInt32 {
+		return int32(val)
+	}
+	return val
+}
+
+// parseInt64Types parses 64-bit integer types.
+func parseInt64Types(data []byte, baseType symbols.DataType) interface{} {
+	if len(data) < 8 {
+		return nil
+	}
+	val := binary.LittleEndian.Uint64(data)
+	if baseType == symbols.DataTypeInt64 {
+		return int64(val)
+	}
+	return val
+}
+
+// parseReal32 parses a 32-bit floating point value.
+func parseReal32(data []byte) interface{} {
+	if len(data) >= 4 {
+		bits := binary.LittleEndian.Uint32(data)
+		return math.Float32frombits(bits)
+	}
+	return nil
+}
+
+// parseReal64 parses a 64-bit floating point value.
+func parseReal64(data []byte) interface{} {
+	if len(data) >= 8 {
+		bits := binary.LittleEndian.Uint64(data)
+		return math.Float64frombits(bits)
+	}
+	return nil
+}
+
+// parseString parses a null-terminated string.
+func parseString(data []byte) interface{} {
+	for i, b := range data {
+		if b == 0 {
+			return string(data[:i])
+		}
+	}
+	return string(data)
 }

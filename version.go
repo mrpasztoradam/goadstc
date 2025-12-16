@@ -10,7 +10,7 @@ const (
 	VersionMajor = 0
 
 	// VersionMinor is the minor version number.
-	VersionMinor = 1
+	VersionMinor = 2
 
 	// VersionPatch is the patch version number.
 	VersionPatch = 0

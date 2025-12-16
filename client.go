@@ -395,8 +395,6 @@ func (c *Client) reconnectLoop() {
 
 			// Reconnection successful!
 			c.logger.Info("reconnection successful", "attempt", attempt)
-			backoff = time.Second
-			attempt = 1
 
 			// Re-establish subscriptions
 			c.reestablishSubscriptions()
@@ -712,16 +710,15 @@ func (c *Client) UploadSymbolTable(ctx context.Context) ([]byte, error) {
 
 	// Create a context with extended timeout for large symbol table downloads
 	// Symbol tables can be large (several MB) and take time to transfer
-	uploadCtx := ctx
+	var uploadCtx context.Context
+	var cancel context.CancelFunc
 	if deadline, ok := ctx.Deadline(); ok {
 		// Extend the deadline by 30 seconds for symbol upload
 		extendedDeadline := deadline.Add(30 * time.Second)
-		var cancel context.CancelFunc
 		uploadCtx, cancel = context.WithDeadline(context.Background(), extendedDeadline)
 		defer cancel()
 	} else {
 		// No existing deadline, create one with 30 seconds
-		var cancel context.CancelFunc
 		uploadCtx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 	}
@@ -857,65 +854,89 @@ func extractArrayElementType(arrayTypeName string) (string, bool) {
 // For "MAIN.myArray[5]", it returns the base symbol with IndexOffset adjusted for element 5.
 // For "MAIN.myArray[5].field", it resolves both array and struct field offsets.
 func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (indexGroup, indexOffset, size uint32, err error) {
-	// First check if there's a struct field path (e.g., "MAIN.aStruct[0].uiTest")
-	// We need to separate: "MAIN.aStruct" + "[0]" + ".uiTest"
-	var arrayBase string
-	var structField string
-
-	// Find if there's a dot after a closing bracket (indicates struct field after array)
-	firstBracket := strings.Index(symbolName, "[")
-	if firstBracket != -1 {
-		closeBracket := strings.Index(symbolName[firstBracket:], "]")
-		if closeBracket != -1 {
-			afterBracket := firstBracket + closeBracket + 1
-			if afterBracket < len(symbolName) && symbolName[afterBracket] == '.' {
-				// We have struct field access after array: split it
-				arrayPart := symbolName[:afterBracket]
-				structField = symbolName[afterBracket+1:] // Skip the dot
-
-				baseName, indices, err := parseArrayAccess(arrayPart)
-				if err != nil {
-					return 0, 0, 0, err
-				}
-				arrayBase = baseName
-
-				// Now handle as "arrayBase[index].field"
-				symbol, err := c.GetSymbol(arrayBase)
-				if err != nil {
-					return 0, 0, 0, fmt.Errorf("resolve symbol %q: %w", arrayBase, err)
-				}
-
-				if len(indices) > 1 {
-					return 0, 0, 0, fmt.Errorf("multi-dimensional arrays not yet supported")
-				}
-
-				// Get array element type
-				elementTypeName, isArray := extractArrayElementType(symbol.Type.Name)
-				if !isArray {
-					return 0, 0, 0, fmt.Errorf("%q is not an array type", arrayBase)
-				}
-
-				// Get element type info
-				elementTypeInfo, err := c.getOrFetchTypeInfo(ctx, elementTypeName)
-				if err != nil {
-					return 0, 0, 0, fmt.Errorf("get element type info for %q: %w", elementTypeName, err)
-				}
-
-				// Calculate array element offset
-				elementOffset := uint32(indices[0]) * elementTypeInfo.Size
-
-				// Now find the struct field offset within the element
-				fieldInfo, found := findFieldInType(elementTypeInfo, structField)
-				if !found {
-					return 0, 0, 0, fmt.Errorf("field %q not found in type %q", structField, elementTypeName)
-				}
-
-				return symbol.IndexGroup, symbol.IndexOffset + elementOffset + fieldInfo.Offset, fieldInfo.Type.Size, nil
-			}
-		}
+	// Check if this is array element with struct field access (e.g., "MAIN.aStruct[0].uiTest")
+	if hasStructFieldAfterArray(symbolName) {
+		return c.resolveArrayStructField(ctx, symbolName)
 	}
 
-	// No struct field after array, use normal array resolution
+	// Handle simple array access or no array access
+	return c.resolveSimpleArray(ctx, symbolName)
+}
+
+// hasStructFieldAfterArray checks if the symbol has a struct field after array notation.
+func hasStructFieldAfterArray(symbolName string) bool {
+	firstBracket := strings.Index(symbolName, "[")
+	if firstBracket == -1 {
+		return false
+	}
+	closeBracket := strings.Index(symbolName[firstBracket:], "]")
+	if closeBracket == -1 {
+		return false
+	}
+	afterBracket := firstBracket + closeBracket + 1
+	return afterBracket < len(symbolName) && symbolName[afterBracket] == '.'
+}
+
+// resolveArrayStructField handles array element with struct field access (e.g., "MAIN.aStruct[0].uiTest").
+func (c *Client) resolveArrayStructField(ctx context.Context, symbolName string) (indexGroup, indexOffset, size uint32, err error) {
+	// Split into array part and struct field
+	arrayPart, structField, err := splitArrayAndField(symbolName)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	// Parse array access
+	baseName, indices, err := parseArrayAccess(arrayPart)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	if len(indices) > 1 {
+		return 0, 0, 0, fmt.Errorf("multi-dimensional arrays not yet supported")
+	}
+
+	// Get base symbol
+	symbol, err := c.GetSymbol(baseName)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("resolve symbol %q: %w", baseName, err)
+	}
+
+	// Get element type and calculate offsets
+	elementTypeName, isArray := extractArrayElementType(symbol.Type.Name)
+	if !isArray {
+		return 0, 0, 0, fmt.Errorf("%q is not an array type", baseName)
+	}
+
+	elementTypeInfo, err := c.getOrFetchTypeInfo(ctx, elementTypeName)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("get element type info for %q: %w", elementTypeName, err)
+	}
+
+	// Calculate array element offset
+	elementOffset := uint32(indices[0]) * elementTypeInfo.Size
+
+	// Find the struct field offset within the element
+	fieldInfo, found := findFieldInType(elementTypeInfo, structField)
+	if !found {
+		return 0, 0, 0, fmt.Errorf("field %q not found in type %q", structField, elementTypeName)
+	}
+
+	return symbol.IndexGroup, symbol.IndexOffset + elementOffset + fieldInfo.Offset, fieldInfo.Type.Size, nil
+}
+
+// splitArrayAndField splits a symbol like "MAIN.aStruct[0].uiTest" into array part and field.
+func splitArrayAndField(symbolName string) (arrayPart, structField string, err error) {
+	firstBracket := strings.Index(symbolName, "[")
+	closeBracket := strings.Index(symbolName[firstBracket:], "]")
+	afterBracket := firstBracket + closeBracket + 1
+
+	arrayPart = symbolName[:afterBracket]
+	structField = symbolName[afterBracket+1:] // Skip the dot
+	return arrayPart, structField, nil
+}
+
+// resolveSimpleArray handles simple array access without struct fields.
+func (c *Client) resolveSimpleArray(ctx context.Context, symbolName string) (indexGroup, indexOffset, size uint32, err error) {
 	baseName, indices, err := parseArrayAccess(symbolName)
 	if err != nil {
 		return 0, 0, 0, err
@@ -932,20 +953,12 @@ func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (ind
 		return symbol.IndexGroup, symbol.IndexOffset, symbol.Size, nil
 	}
 
-	// Calculate offset for array access
 	if len(indices) > 1 {
 		return 0, 0, 0, fmt.Errorf("multi-dimensional arrays not yet supported")
 	}
 
-	// For arrays, extract the element type from the array type name
-	// e.g., "ARRAY [0..9] OF INT" -> element type is "INT"
-	elementTypeName, isArray := extractArrayElementType(symbol.Type.Name)
-	if !isArray {
-		// Not an array type, use the symbol's type directly (shouldn't happen with valid array access)
-		elementTypeName = symbol.Type.Name
-	}
-
-	// Get element type info to determine element size
+	// Get element type and calculate offset
+	elementTypeName := getElementTypeName(symbol.Type.Name)
 	elementTypeInfo, err := c.getOrFetchTypeInfo(ctx, elementTypeName)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("get element type info for %q: %w", elementTypeName, err)
@@ -955,6 +968,15 @@ func (c *Client) resolveArraySymbol(ctx context.Context, symbolName string) (ind
 	offset := uint32(indices[0]) * elementSize
 
 	return symbol.IndexGroup, symbol.IndexOffset + offset, elementSize, nil
+}
+
+// getElementTypeName extracts the element type name from an array type.
+func getElementTypeName(typeName string) string {
+	elementTypeName, isArray := extractArrayElementType(typeName)
+	if !isArray {
+		return typeName
+	}
+	return elementTypeName
 }
 
 // findFieldInType searches for a field in a type's field list.

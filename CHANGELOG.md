@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-12-16
+
 ### Added
 
 - Library versioning system
@@ -47,6 +49,21 @@
 - All client operations now log detailed information
 - Connection lifecycle events now logged with structured fields
 - Notification handling includes logging and metrics
+
+### Improved
+
+- Code quality improvements
+  - Reduced cyclomatic complexity across codebase
+  - Refactored `parseFieldValue()` from complexity 32 to 3 in client_structs.go
+  - Refactored `ReadStructAsMap()` from complexity 18 to 2 in client_structs.go
+  - Refactored `resolveArraySymbol()` from complexity 17 to 2 in client.go
+  - Refactored examples (symbols, arrays, structs, comprehensive) to reduce complexity
+  - Extracted helper functions for better code organization
+- Added `String()` method to `ADSState` type for standard string representation
+  - Implements `Stringer` interface
+  - Centralized state-to-string conversion in core library
+  - Available for all logging and error messages
+- Fixed ineffectual assignments in client.go reconnection logic and context handling
 
 ### Documentation
 

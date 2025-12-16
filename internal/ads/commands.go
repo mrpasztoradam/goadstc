@@ -64,6 +64,48 @@ const (
 	StateStop2      ADSState = 16
 )
 
+// String returns the string representation of the ADS state.
+func (s ADSState) String() string {
+	switch s {
+	case StateInvalid:
+		return "Invalid"
+	case StateIdle:
+		return "Idle"
+	case StateReset:
+		return "Reset"
+	case StateInit:
+		return "Init"
+	case StateStart:
+		return "Start"
+	case StateRun:
+		return "Run"
+	case StateStop:
+		return "Stop"
+	case StateSaveConfig:
+		return "SaveConfig"
+	case StateLoadConfig:
+		return "LoadConfig"
+	case StatePowerGood:
+		return "PowerGood"
+	case StateError:
+		return "Error"
+	case StateShutdown:
+		return "Shutdown"
+	case StateSuspend:
+		return "Suspend"
+	case StateResume:
+		return "Resume"
+	case StateConfig:
+		return "Config"
+	case StateReconfig:
+		return "Reconfig"
+	case StateStop2:
+		return "Stop2"
+	default:
+		return fmt.Sprintf("Unknown(%d)", s)
+	}
+}
+
 type ReadRequest struct {
 	IndexGroup  uint32
 	IndexOffset uint32

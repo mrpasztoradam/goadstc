@@ -157,7 +157,7 @@ func testReadState(ctx context.Context, client *goadstc.Client) (*goadstc.Device
 		return nil, fmt.Errorf("failed to read state: %w", err)
 	}
 
-	fmt.Printf("  ADS State: %s (%d)\n", adsStateToString(state.ADSState), state.ADSState)
+	fmt.Printf("  ADS State: %s (%d)\n", state.ADSState.String(), state.ADSState)
 	fmt.Printf("  Device State: %d\n", state.DeviceState)
 	return state, nil
 }
@@ -351,7 +351,7 @@ func testWriteControl(ctx context.Context, client *goadstc.Client, initialState 
 	// Check if PLC is running
 	if initialState.ADSState != ads.StateRun {
 		fmt.Printf("  PLC is not in RUN state (current: %s), skipping stop/start test\n",
-			adsStateToString(initialState.ADSState))
+			initialState.ADSState.String())
 		return nil
 	}
 
@@ -386,7 +386,7 @@ func testWriteControl(ctx context.Context, client *goadstc.Client, initialState 
 		}
 		return fmt.Errorf("failed to read state after stop: %w", err)
 	}
-	fmt.Printf("  Current state: %s\n", adsStateToString(state.ADSState))
+	fmt.Printf("  Current state: %s\n", state.ADSState.String())
 
 	// If we got here, connection is still alive, try to restart
 	if state.ADSState != ads.StateRun {
@@ -405,51 +405,10 @@ func testWriteControl(ctx context.Context, client *goadstc.Client, initialState 
 		if err != nil {
 			return fmt.Errorf("failed to read final state: %w", err)
 		}
-		fmt.Printf("  Final state: %s\n", adsStateToString(state.ADSState))
+		fmt.Printf("  Current state: %s\n", state.ADSState.String())
 	}
 
 	return nil
-}
-
-func adsStateToString(state ads.ADSState) string {
-	switch state {
-	case ads.StateInvalid:
-		return "Invalid"
-	case ads.StateIdle:
-		return "Idle"
-	case ads.StateReset:
-		return "Reset"
-	case ads.StateInit:
-		return "Init"
-	case ads.StateStart:
-		return "Start"
-	case ads.StateRun:
-		return "Run"
-	case ads.StateStop:
-		return "Stop"
-	case ads.StateSaveConfig:
-		return "SaveConfig"
-	case ads.StateLoadConfig:
-		return "LoadConfig"
-	case ads.StatePowerGood:
-		return "PowerGood"
-	case ads.StateError:
-		return "Error"
-	case ads.StateShutdown:
-		return "Shutdown"
-	case ads.StateSuspend:
-		return "Suspend"
-	case ads.StateResume:
-		return "Resume"
-	case ads.StateConfig:
-		return "Config"
-	case ads.StateReconfig:
-		return "Reconfig"
-	case ads.StateStop2:
-		return "Stop2"
-	default:
-		return fmt.Sprintf("Unknown(%d)", state)
-	}
 }
 
 func printAddressInfo() {

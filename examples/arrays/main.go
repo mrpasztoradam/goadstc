@@ -12,11 +12,27 @@ import (
 )
 
 func main() {
+	printHeader()
+	client, ctx := setupClient()
+	defer client.Close()
+
+	runTest1ReadIntArray(ctx, client)
+	runTest2WriteToArray(ctx, client)
+	runTest3ReadStructArray(ctx, client)
+	runTest4WriteStructArray(ctx, client)
+	runTest5StringOperations(ctx, client)
+
+	printSummary()
+}
+
+func printHeader() {
 	fmt.Println("╔══════════════════════════════════════════════════════════╗")
 	fmt.Println("║       Array Element Access Example (Milestone 5)        ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════╝")
 	fmt.Println()
+}
 
+func setupClient() (*goadstc.Client, context.Context) {
 	plcIP := "10.10.0.3:48898"
 	plcNetID := ams.NetID{10, 0, 10, 20, 1, 1}
 	pcNetID := ams.NetID{10, 10, 0, 10, 1, 1}
@@ -32,12 +48,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("❌ Failed to create client: %v", err)
 	}
-	defer client.Close()
 	fmt.Println("✅ Connected successfully")
+	return client, context.Background()
+}
 
-	ctx := context.Background()
-
-	// Test 1: Read array of INT elements
+func runTest1ReadIntArray(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("📖 Test 1: Read Array of INT Elements")
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -54,8 +69,9 @@ func main() {
 	}
 	fmt.Println("✅ Test 1 complete")
 	fmt.Println()
+}
 
-	// Test 2: Write to array elements
+func runTest2WriteToArray(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("✍️  Test 2: Write to Array Elements")
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -88,8 +104,9 @@ func main() {
 	}
 	fmt.Println("✅ Test 2 complete")
 	fmt.Println()
+}
 
-	// Test 3: Read array of struct elements
+func runTest3ReadStructArray(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("📖 Test 3: Read Array of Struct Elements")
 	fmt.Println("═══════════════════════════════════════════════════════════")
@@ -108,16 +125,23 @@ func main() {
 	}
 	fmt.Println("✅ Test 3 complete")
 	fmt.Println()
+}
 
-	// Test 4: Write to struct array elements
+func runTest4WriteStructArray(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("✍️  Test 4: Write to Struct Array Elements")
 	fmt.Println("═══════════════════════════════════════════════════════════")
 
-	fmt.Println("   Writing to MAIN.aStruct[0] fields using type-safe methods...")
+	writeStructFields0(ctx, client)
+	writeStructFields1(ctx, client)
+	verifyStructWrites(ctx, client)
 
-	// Write individual fields of the struct using dot notation
-	// TestSt has: uiTest (UINT), iTest (INT), sTest (STRING)
+	fmt.Println("✅ Test 4 complete")
+	fmt.Println()
+}
+
+func writeStructFields0(ctx context.Context, client *goadstc.Client) {
+	fmt.Println("   Writing to MAIN.aStruct[0] fields using type-safe methods...")
 	if err := client.WriteUint16(ctx, "MAIN.aStruct[0].uiTest", 999); err != nil {
 		log.Printf("   ⚠️  Failed to write uiTest: %v", err)
 	} else {
@@ -129,8 +153,9 @@ func main() {
 	} else {
 		fmt.Println("   ✅ Wrote -123 to MAIN.aStruct[0].iTest")
 	}
+}
 
-	// Write another struct element
+func writeStructFields1(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("\n   Writing to MAIN.aStruct[1] fields...")
 	if err := client.WriteUint16(ctx, "MAIN.aStruct[1].uiTest", 777); err != nil {
 		log.Printf("   ⚠️  Failed to write uiTest: %v", err)
@@ -143,7 +168,9 @@ func main() {
 	} else {
 		fmt.Println("   ✅ Wrote 456 to MAIN.aStruct[1].iTest")
 	}
+}
 
+func verifyStructWrites(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("\n   Verifying writes by reading both structs...")
 	for i := 0; i < 2; i++ {
 		symbolName := fmt.Sprintf("MAIN.aStruct[%d]", i)
@@ -156,15 +183,21 @@ func main() {
 		jsonData, _ := json.MarshalIndent(structData, "   ", "  ")
 		fmt.Printf("   %s after write:\n%s\n", symbolName, string(jsonData))
 	}
-	fmt.Println("✅ Test 4 complete")
-	fmt.Println()
+}
 
-	// Test 5: String operations
+func runTest5StringOperations(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println("📝 Test 5: String Operations")
 	fmt.Println("═══════════════════════════════════════════════════════════")
 
-	// Test basic string read/write
+	testBasicStringOps(ctx, client)
+	testStructArrayString(ctx, client)
+
+	fmt.Println("✅ Test 5 complete")
+	fmt.Println()
+}
+
+func testBasicStringOps(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("   Reading MAIN.sString...")
 	strValue, err := client.ReadString(ctx, "MAIN.sString")
 	if err != nil {
@@ -192,8 +225,9 @@ func main() {
 			fmt.Println(" ❌")
 		}
 	}
+}
 
-	// Test string in struct array
+func testStructArrayString(ctx context.Context, client *goadstc.Client) {
 	fmt.Println("\n   Writing to string field in struct array...")
 	if err := client.WriteString(ctx, "MAIN.aStruct[0].sTest", "Array String!"); err != nil {
 		log.Printf("   ⚠️  Failed to write: %v", err)
@@ -209,9 +243,9 @@ func main() {
 		jsonData, _ := json.MarshalIndent(structData, "   ", "  ")
 		fmt.Printf("   MAIN.aStruct[0]:\n%s\n", string(jsonData))
 	}
-	fmt.Println("✅ Test 5 complete")
-	fmt.Println()
+}
 
+func printSummary() {
 	fmt.Println("╔══════════════════════════════════════════════════════════╗")
 	fmt.Println("║              Milestone 5 Complete!                       ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════╝")
